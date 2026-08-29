@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Workflow Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/css/app.css" />
+  <script src="https://cdn.jsdelivr.net/npm/elkjs@0.9.3/lib/elk.bundled.js" defer></script>
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js" defer></script>
+</head>
+<body>
+  <div id="app">
+    <!-- ============ DASHBOARD ============ -->
+    <section id="view-dashboard" class="view" data-testid="dashboard-view">
+      <header class="dash-header">
+        <div class="dash-brand">
+          <div class="brand-mark">WS</div>
+          <div>
+            <h1>Workflow Studio</h1>
+            <p class="mono-label">PYTHON EDITION &middot; FASTAPI + MONGODB</p>
+          </div>
+        </div>
+        <div class="dash-actions">
+          <button class="btn ghost" id="import-project-btn" data-testid="import-project-btn">Import .wflow</button>
+          <input type="file" id="import-file-input" accept=".json,.wflow" hidden />
+          <button class="btn ghost icon-btn" id="dash-theme-toggle" data-testid="dash-theme-toggle" title="Toggle theme"></button>
+          <button class="btn primary" id="create-project-btn" data-testid="create-project-btn">+ New Workflow</button>
+        </div>
+      </header>
+      <main class="dash-body">
+        <div id="project-grid" class="project-grid" data-testid="project-grid"></div>
+        <div id="dash-empty" class="dash-empty hidden" data-testid="dashboard-empty-state">
+          <div class="empty-card">
+            <h2>No workflows yet</h2>
+            <p>Create your first workflow to start designing, documenting and presenting your processes.</p>
+            <button class="btn primary" id="empty-create-btn" data-testid="empty-create-btn">+ New Workflow</button>
+          </div>
+        </div>
+      </main>
+    </section>
+
+    <!-- ============ EDITOR ============ -->
+    <section id="view-editor" class="view hidden" data-testid="editor-view">
+      <header id="topbar">
+        <div class="tb-left">
+          <button class="btn ghost icon-btn" id="back-btn" data-testid="back-to-dashboard-btn" title="Back to dashboard">&#8592;</button>
+          <input id="project-title" class="title-input" data-testid="project-title-input" maxlength="120" />
+          <span id="save-status" class="mono-label save-status" data-testid="save-status">Saved</span>
+        </div>
+        <div class="tb-center">
+          <button class="btn ghost icon-btn" id="undo-btn" data-testid="undo-btn" title="Undo (Ctrl+Z)">&#8630;</button>
+          <button class="btn ghost icon-btn" id="redo-btn" data-testid="redo-btn" title="Redo (Ctrl+Y)">&#8631;</button>
+          <span class="tb-sep"></span>
+          <div class="dropdown">
+            <button class="btn ghost" id="layout-btn" data-testid="auto-layout-btn">Auto Layout &#9662;</button>
+            <div class="dropdown-menu hidden" id="layout-menu">
+              <button data-testid="layout-vertical-btn" data-dir="DOWN">Top &rarr; Bottom</button>
+              <button data-testid="layout-horizontal-btn" data-dir="RIGHT">Left &rarr; Right</button>
+            </div>
+          </div>
+          <button class="btn ghost" id="export-btn" data-testid="export-btn">Export</button>
+        </div>
+        <div class="tb-right">
+          <button class="btn ghost icon-btn" id="theme-toggle" data-testid="theme-toggle-btn" title="Toggle theme"></button>
+          <button class="btn play-btn" id="play-btn" data-testid="play-btn">&#9654; Play</button>
+        </div>
+      </header>
+      <div id="editor-body">
+        <aside id="palette" data-testid="shape-palette">
+          <p class="mono-label palette-heading">SHAPES</p>
+          <div id="palette-list"></div>
+          <p class="palette-hint">Drag a shape onto the canvas, or click it to add. Hover a node and use its connection points to build guided flows.</p>
+        </aside>
+        <main id="canvas" data-testid="workflow-canvas">
+          <div id="world">
+            <svg id="edge-layer">
+              <defs>
+                <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head"></path>
+                </marker>
+                <marker id="arrow-play" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+                  <path d="M 0 0 L 10 5 L 0 10 z" class="arrow-head-play"></path>
+                </marker>
+              </defs>
+              <g id="edge-group"></g>
+              <path id="temp-edge" class="temp-edge hidden"></path>
+            </svg>
+            <div id="node-layer"></div>
+          </div>
+          <div id="zoom-controls" class="glass" data-testid="zoom-controls">
+            <button id="zoom-in-btn" data-testid="zoom-in-btn" title="Zoom in">+</button>
+            <button id="zoom-out-btn" data-testid="zoom-out-btn" title="Zoom out">&minus;</button>
+            <button id="zoom-fit-btn" data-testid="zoom-fit-btn" title="Fit view">&#9635;</button>
+            <span id="zoom-level" class="mono-label" data-testid="zoom-level">100%</span>
+          </div>
+          <div id="validation-chip" class="glass hidden" data-testid="validation-chip"></div>
+          <div id="play-bar" class="glass hidden" data-testid="play-overlay">
+            <button class="btn ghost icon-btn" id="play-exit-btn" data-testid="play-exit-btn" title="Exit play mode">&#10005;</button>
+            <button class="btn ghost icon-btn" id="play-restart-btn" data-testid="play-restart-btn" title="Restart">&#8634;</button>
+            <button class="btn ghost icon-btn" id="play-prev-btn" data-testid="play-prev-btn" title="Previous step">&#8592;</button>
+            <span id="play-step" class="mono-label" data-testid="play-step-indicator">STEP 1</span>
+            <button class="btn primary" id="play-next-btn" data-testid="play-next-btn">Next &#8594;</button>
+            <div id="play-choices" class="hidden"></div>
+          </div>
+          <div id="node-picker" class="glass hidden" data-testid="node-picker"></div>
+        </main>
+        <aside id="doc-panel" class="hidden" data-testid="doc-panel">
+          <div class="doc-head">
+            <p class="mono-label" id="doc-node-type">NODE</p>
+            <div>
+              <button class="btn danger-ghost" id="doc-delete-btn" data-testid="node-delete-btn">Delete</button>
+              <button class="btn ghost icon-btn" id="doc-close-btn" data-testid="doc-close-btn">&#10005;</button>
+            </div>
+          </div>
+          <label class="field-label">Title</label>
+          <input id="doc-title" class="field-input" data-testid="doc-title-input" maxlength="80" />
+          <label class="field-label">Short description <span class="hint">(shown on hover)</span></label>
+          <textarea id="doc-short" class="field-input" data-testid="doc-short-input" rows="2" maxlength="240"></textarea>
+          <label class="field-label">Detailed documentation</label>
+          <div id="doc-editor-wrap"><div id="doc-editor" data-testid="doc-rich-editor"></div></div>
+        </aside>
+      </div>
+    </section>
+  </div>
+  <div id="modal-root"></div>
+  <div id="toast-root"></div>
+  <script type="module" src="/static/js/app.js"></script>
+</body>
+</html>

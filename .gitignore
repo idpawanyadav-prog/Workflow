@@ -87,3 +87,5 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/3.pack
+workflow_studio.db
+__pycache__/

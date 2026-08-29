@@ -1,0 +1,31 @@
+{
+  "summary": "Full re-test of the migrated Python-only Workflow Studio (FastAPI backend + FastAPI/Jinja2 frontend). Backend: 13/13 pytest tests pass — health returns storage=mongo; Project CRUD, graph save, and import endpoints all persist correctly (Create→GET, PUT rename→GET, PUT graph→GET nodeCount, POST /import→GET, DELETE→404, plus 422 validation and 404 branches). Frontend: dashboard loads with existing cards + '+ New Workflow' modal; project creation opens editor with seeded Start→Process flow (2 nodes, 1 edge); palette click adds a node; guided-builder node-port + node-picker adds a new node (correctly limited by maxOut of Start=1); undo/redo restores nodes; auto-layout vertical repositions nodes via ELK; zoom-in/out/fit and zoom-level update; theme-toggle-btn flips html.dark; project-title-input rename auto-saves; play mode overlay, next, prev, exit all work; back-to-dashboard returns to dashboard with correct nodeCount; dash-theme-toggle persists; decision Yes/No labels are auto-applied on 1st/2nd outgoing edges; 3rd outgoing edge from decision is rejected with toast 'Decision allows max 2 outgoing connections'; export downloads a .wflow file (1.8KB) and import via dashboard file input creates a new project card; project delete via delete-project-btn (window.confirm handled) removes the card; doc-panel opens on dblclick via Playwright locator (Quill loads from CDN).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py cleanly separates MongoStorage and SQLiteStorage; MongoDB _id is stripped from every read. Good.",
+    "server.py uses @app.on_event('shutdown') which is deprecated in newer FastAPI; consider migrating to a lifespan handler (non-blocking).",
+    "canvas.js mousedown handler calls e.preventDefault() on .wf-node — this can suppress the browser's native dblclick event when using programmatic ElementHandle.dblclick(); verified locator.dblclick() still works in Playwright and real user double-click opens the doc panel, but automated tests using stale ElementHandle references may miss the dblclick. Consider guarding preventDefault behind drag-start-only (i.e. only when actually moving).",
+    "state.js addConnection enforces maxOut and auto-labels first/second outgoing edges from decision nodes as 'Yes'/'No' — matches spec.",
+    "Guided builder correctly refuses to create a second outgoing edge from Start (maxOut=1) but still adds the picker-selected node — the review request wording implied auto-connect always happens; current behaviour is arguably safer. Consider adding a toast to explain when auto-connect is skipped due to maxOut."
+  ],
+  "updated_files": [
+    "/app/backend/tests/backend_test.py (rewritten for new Python backend contract)"
+  ],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100% of the 15 requested flows verified"},
+  "test_credentials": "N/A - no auth in this app",
+  "seed_data_creation": "Test projects prefixed with TEST_ were created in Mongo during tests and cleaned up at the end of the frontend run via API DELETE. The pre-existing 'Smoke Test Flow' from the previous smoke test was left in place.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL: REACT_APP_BACKEND_URL from /app/frontend/.env. Storage backend is Mongo in preview. All /api routes work as specified. UI uses hash routing '#/p/{id}' and Quill/ELK load from jsdelivr CDN (allow ~2s after editor loads). When automating dblclick to open doc-panel, prefer page.locator(...).dblclick() over ElementHandle.dblclick() because state.commit() re-renders nodes and stale ElementHandles cause pointer-events interception. For drag-to-connect, evaluate() bounding boxes inside the browser and use page.mouse.down/move/up (raw mouse events); HTML5 dnd (dataTransfer 'nodeType') is only used for palette items — clicking a palette item is an equivalent path. Decision node has maxOut=2; Start/Process/etc have maxOut=1.",
+  "rca of the issue": "No blocking issues discovered. Only minor code-review notes above."
+}
