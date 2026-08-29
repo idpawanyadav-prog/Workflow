@@ -1,5 +1,7 @@
 import { state, bus, emit, getNode, outgoing } from './state.js';
-import { render, centerOn } from './canvas.js';
+import { render, centerOn, zoomToNode } from './canvas.js';
+import { getSettings } from './settings.js';
+import { NODE_TYPES } from './nodes.js';
 
 const bar = document.getElementById('play-bar');
 const stepEl = document.getElementById('play-step');
@@ -8,6 +10,9 @@ const choicesEl = document.getElementById('play-choices');
 const enterSubflowBtn = document.getElementById('play-enter-subflow-btn');
 const backParentBtn = document.getElementById('play-back-parent-btn');
 const backParentLabel = document.getElementById('play-back-parent-label');
+const summaryEl = document.getElementById('play-summary');
+const summaryTitleEl = document.getElementById('play-summary-title');
+const summaryDescEl = document.getElementById('play-summary-desc');
 
 // Play-navigation stack: each entry records the parent flow + the subflow node
 // we entered from, so we can return at any time (and nest several levels).
@@ -38,13 +43,14 @@ export function enterPlay(startId) {
   document.getElementById('play-btn').classList.add('active');
   document.getElementById('palette').classList.add('palette-hidden');
   update();
-  centerOn(start.id, true);
+  requestAnimationFrame(() => zoomToNode(start.id, true));
 }
 
 export function exitPlay() {
   state.play = null;
   bar.classList.add('hidden');
   choicesEl.classList.add('hidden');
+  summaryEl.classList.add('hidden');
   document.getElementById('play-btn').classList.remove('active');
   document.getElementById('palette').classList.remove('palette-hidden');
   render();
@@ -87,7 +93,25 @@ function update() {
   const stack = readPlayStack();
   backParentBtn.classList.toggle('hidden', stack.length === 0);
   if (stack.length) backParentLabel.textContent = stack[stack.length - 1].name;
+  updateSummary(node);
   render();
+}
+
+function updateSummary(node) {
+  const enabled = getSettings().play.showSummary !== false;
+  if (!enabled) { summaryEl.classList.add('hidden'); return; }
+  summaryTitleEl.textContent = node.title || (NODE_TYPES[node.type] && NODE_TYPES[node.type].label) || 'Step';
+  const desc = node.shortDescription || stripHtml(node.detailedDescription) || '';
+  summaryDescEl.textContent = desc;
+  summaryDescEl.classList.toggle('hidden', !desc);
+  summaryEl.classList.remove('hidden');
+}
+
+function stripHtml(html) {
+  if (!html) return '';
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent.trim();
 }
 
 function advance(conn) {

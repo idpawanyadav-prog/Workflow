@@ -1,5 +1,5 @@
 import { api } from './api.js';
-import { NODE_TYPES } from './nodes.js';
+import { typeDef } from './nodes.js';
 
 export const bus = new EventTarget();
 export const emit = (name, detail) => bus.dispatchEvent(new CustomEvent(name, { detail }));
@@ -31,6 +31,7 @@ export function loadProject(project) {
   lastSnapshot = serialize();
   state.saveStatus = 'Saved';
   emit('graph');
+  emit('selection');
 }
 
 export function commit() {
@@ -62,6 +63,7 @@ function applySnapshot(snap) {
   state.selection = { nodeId: null, connId: null };
   scheduleSave();
   emit('graph');
+  emit('selection');
 }
 
 function scheduleSave() {
@@ -88,7 +90,7 @@ export const outgoing = (id) => state.connections.filter((c) => c.source === id)
 export const incoming = (id) => state.connections.filter((c) => c.target === id);
 
 export function addNode(type, position, opts = {}) {
-  const def = NODE_TYPES[type];
+  const def = typeDef(type);
   if (type === 'start' && state.nodes.some((n) => n.type === 'start')) {
     emit('toast', { message: 'A workflow can only have one Start node', type: 'error' });
     return null;
@@ -99,8 +101,12 @@ export function addNode(type, position, opts = {}) {
     shortDescription: '', detailedDescription: '',
     position: { x: Math.round(position.x / 8) * 8, y: Math.round(position.y / 8) * 8 },
   };
+  if (opts.accent) node.accent = opts.accent;
   state.nodes.push(node);
-  if (!opts.silent) commit();
+  if (!opts.silent) {
+    commit();
+    setSelection(node.id, null);
+  }
   return node;
 }
 
@@ -114,9 +120,11 @@ export function updateNode(id, patch) {
 export function deleteNode(id) {
   state.nodes = state.nodes.filter((n) => n.id !== id);
   state.connections = state.connections.filter((c) => c.source !== id && c.target !== id);
-  if (state.selection.nodeId === id) state.selection.nodeId = null;
+  const cleared = state.selection.nodeId === id;
+  if (cleared) state.selection.nodeId = null;
   relabelDecisions();
   commit();
+  if (cleared) emit('selection');
 }
 
 export function addConnection(sourceId, sourceDir, targetId, targetDir, opts = {}) {
@@ -127,7 +135,7 @@ export function addConnection(sourceId, sourceDir, targetId, targetDir, opts = {
     emit('toast', { message: 'These nodes are already connected', type: 'error' });
     return null;
   }
-  const srcDef = NODE_TYPES[src.type], tgtDef = NODE_TYPES[tgt.type];
+  const srcDef = typeDef(src.type), tgtDef = typeDef(tgt.type);
   if (outgoing(sourceId).length >= srcDef.maxOut) {
     emit('toast', { message: `${srcDef.label} allows max ${srcDef.maxOut} outgoing connection${srcDef.maxOut === 1 ? '' : 's'}`, type: 'error' });
     return null;
@@ -146,9 +154,11 @@ export function addConnection(sourceId, sourceDir, targetId, targetDir, opts = {
 
 export function deleteConnection(id) {
   state.connections = state.connections.filter((c) => c.id !== id);
-  if (state.selection.connId === id) state.selection.connId = null;
+  const cleared = state.selection.connId === id;
+  if (cleared) state.selection.connId = null;
   relabelDecisions();
   commit();
+  if (cleared) emit('selection');
 }
 
 function relabelDecisions() {

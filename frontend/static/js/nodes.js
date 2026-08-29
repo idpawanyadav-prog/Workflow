@@ -51,14 +51,30 @@ export const NODE_TYPES = {
     desc: 'Reference to another workflow',
     icon: icon('<path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22 12.18-8.58 3.91a2 2 0 0 1-1.66 0L2 12.18"/><path d="m22 17.18-8.58 3.91a2 2 0 0 1-1.66 0L2 17.18"/>'),
   },
+  custom: {
+    label: 'Custom Process', shape: 'rect', w: 180, h: 64, color: '#0F766E', maxIn: Infinity, maxOut: 1,
+    desc: 'Name it and pick a color',
+    icon: icon('<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8"/><path d="M8 12h8"/>'),
+  },
 };
+
+export const CUSTOM_COLORS = ['#0F766E', '#4338CA', '#0369A1', '#7C3AED', '#B45309', '#BE185D', '#15803D', '#C2410C', '#64748B', '#0E7490'];
 
 export const DIRS = ['top', 'right', 'bottom', 'left'];
 export const DIRV = { top: [0, -1], right: [1, 0], bottom: [0, 1], left: [-1, 0] };
 export const OPPOSITE = { top: 'bottom', bottom: 'top', left: 'right', right: 'left' };
 
+export function typeDef(type) {
+  return NODE_TYPES[type] || NODE_TYPES.process;
+}
+
+export function nodeAppearance(node) {
+  const d = typeDef(node && node.type);
+  return { ...d, color: (node && node.accent) || d.color };
+}
+
 export function nodeSize(node) {
-  const d = NODE_TYPES[node.type];
+  const d = typeDef(node.type);
   return { w: d.w, h: d.h };
 }
 

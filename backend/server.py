@@ -21,6 +21,8 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from starlette.middleware.cors import CORSMiddleware
 
+from samples import SAMPLE_IDS, seed_sample_projects
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / ".env")
 
@@ -233,7 +235,7 @@ def objstore_get(path: str):
 
 
 # ---------------- AI workflow drafting ----------------
-VALID_NODE_TYPES = {"start", "end", "process", "decision", "database", "api", "document", "delay", "email", "subflow"}
+VALID_NODE_TYPES = {"start", "end", "process", "decision", "database", "api", "document", "delay", "email", "subflow", "custom"}
 AI_SYSTEM = (
     "You convert a plain-text process description into a workflow graph.\n"
     "Available node types: start, end, process, decision, database, api, document, delay, email, subflow.\n"
@@ -299,6 +301,17 @@ def parse_ai_graph(text: str) -> dict:
 
 class DraftRequest(BaseModel):
     prompt: str = Field(min_length=5, max_length=3000)
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    provider: str | None = None
+
+
+class AiTestRequest(BaseModel):
+    base_url: str | None = None
+    api_key: str = Field(min_length=1, max_length=400)
+    model: str | None = None
+    provider: str | None = None
 
 
 app = FastAPI(title="Workflow Studio API")
@@ -377,6 +390,17 @@ async def save_graph(pid: str, body: GraphPayload):
     return {"saved": True, "updatedAt": res["updatedAt"]}
 
 
+@api.post("/projects/seed-samples", status_code=200)
+async def seed_samples():
+    result = await seed_sample_projects(storage, only_if_empty=False)
+    return {
+        "inserted": result["inserted"],
+        "skipped": result["skipped"],
+        "insertedCount": len(result["inserted"]),
+        "sampleIds": sorted(SAMPLE_IDS),
+    }
+
+
 @api.post("/projects/import", status_code=201)
 async def import_project(body: ProjectImport):
     doc = {
@@ -445,10 +469,343 @@ async def delete_attachment(aid: str):
     return {"deleted": True}
 
 
+XAI_BASE = "https://api.x.ai/v1"
+OPENAI_BASE = "https://api.openai.com/v1"
+CURSOR_BASE = "https://api.cursor.com"
+DEFAULT_GROK_MODEL = "grok-4.6"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_CURSOR_MODEL = "grok-4.6"
+
+
+def detect_ai_kind(provider: str | None, base_url: str, api_key: str) -> str:
+    p = (provider or "auto").strip().lower()
+    key = (api_key or "").strip()
+    url = (base_url or "").lower()
+    if p in {"cursor", "crsr"} or key.startswith("crsr_"):
+        return "cursor"
+    if p in {"grok", "xai", "x.ai"}:
+        return "xai"
+    if p == "openai":
+        return "openai"
+    if p == "custom":
+        return "custom"
+    if key.startswith("xai-") or "x.ai" in url:
+        return "xai"
+    if key.startswith("sk-"):
+        return "openai"
+    if "grok" in url:
+        return "xai"
+    if url.strip():
+        return "custom"
+    return "xai"
+
+
+def _normalize_openai_base(url: str, kind: str) -> str:
+    u = url.strip().rstrip("/")
+    for suffix in ("/chat/completions", "/responses", "/models"):
+        if u.endswith(suffix):
+            u = u[: -len(suffix)].rstrip("/")
+    if kind == "xai" and "x.ai" in u.lower():
+        path = u.split("x.ai", 1)[-1]
+        if "/v1" not in path:
+            u = u + "/v1"
+    return u
+
+
+def resolve_ai_config(base_url: str | None, api_key: str | None, model: str | None, provider: str | None):
+    key = (api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key is required")
+    kind = detect_ai_kind(provider, base_url or "", key)
+    url = (base_url or "").strip()
+    if not url:
+        url = {"xai": XAI_BASE, "cursor": CURSOR_BASE}.get(kind, OPENAI_BASE)
+    url = _normalize_openai_base(url, kind)
+    mdl = (model or "").strip() or (
+        DEFAULT_GROK_MODEL if kind in {"xai", "cursor"} else DEFAULT_OPENAI_MODEL
+    )
+    return url, key, mdl, kind
+
+
+def cursor_request(method: str, path: str, api_key: str, json: dict | None = None, timeout: int = 45):
+    url = f"{CURSOR_BASE}{path}"
+    last = None
+    attempts = [
+        {"auth": (api_key, "")},
+        {"headers": {"Authorization": f"Bearer {api_key}"}},
+    ]
+    for extra in attempts:
+        headers = {"Accept": "application/json"}
+        if json is not None:
+            headers["Content-Type"] = "application/json"
+        headers.update(extra.get("headers") or {})
+        last = requests.request(
+            method, url, json=json, timeout=timeout,
+            auth=extra.get("auth"), headers=headers,
+        )
+        if last.ok or last.status_code not in (401, 403, 405):
+            return last
+    return last
+
+
+def cursor_model_ids(api_key: str) -> list[str]:
+    r = cursor_request("GET", "/v1/models", api_key, timeout=30)
+    if not r or not r.ok:
+        return []
+    data = r.json() if r.content else {}
+    items = data.get("items") or data.get("data") or []
+    ids = []
+    for item in items:
+        if isinstance(item, dict) and item.get("id"):
+            ids.append(str(item["id"]))
+        elif isinstance(item, str):
+            ids.append(item)
+    return ids
+
+
+def pick_cursor_model(api_key: str, requested: str | None) -> str:
+    if requested and requested.strip():
+        return requested.strip()
+    ids = cursor_model_ids(api_key)
+    for candidate in (DEFAULT_CURSOR_MODEL, "composer-2.5", "composer-2", "auto"):
+        if candidate in ids:
+            return candidate
+    return ids[0] if ids else DEFAULT_CURSOR_MODEL
+
+
+def test_cursor_key(api_key: str) -> dict:
+    me = cursor_request("GET", "/v1/me", api_key, timeout=25)
+    models = cursor_request("GET", "/v1/models", api_key, timeout=25)
+    if (not me or not me.ok) and (not models or not models.ok):
+        err = me or models
+        status = err.status_code if err is not None else 502
+        if status in (401, 403):
+            raise HTTPException(401, f"Invalid Cursor API key: {_api_error_message(err)}")
+        raise HTTPException(502, f"Cursor API error ({status}): {_api_error_message(err) if err else 'no response'}")
+    who = "Cursor account"
+    if me is not None and me.ok:
+        data = me.json() if me.content else {}
+        who = data.get("userEmail") or data.get("apiKeyName") or data.get("userId") or who
+    ids = []
+    if models is not None and models.ok:
+        payload = models.json() if models.content else {}
+        items = payload.get("items") or payload.get("data") or []
+        ids = [str(i.get("id")) for i in items if isinstance(i, dict) and i.get("id")]
+    return {
+        "ok": True,
+        "provider": "Cursor",
+        "base_url": CURSOR_BASE,
+        "model": ids[0] if ids else DEFAULT_CURSOR_MODEL,
+        "models": ids[:16],
+        "message": f"Connected to Cursor as {who}" + (f" ({len(ids)} models)" if ids else ""),
+    }
+
+
+def cursor_complete_sdk(api_key: str, prompt: str, model: str, system: str = AI_SYSTEM) -> str:
+    try:
+        from cursor_sdk import Agent, AgentOptions, LocalAgentOptions
+    except ImportError:
+        raise HTTPException(
+            503,
+            "This Cursor key cannot call a chat-completions URL. Install the Cursor SDK next to the server: pip install cursor-sdk",
+        )
+    import tempfile
+    msg = f"{system}\n\nUser request:\n{prompt}\n\nReply with only the required output. Do not create or edit files."
+    with tempfile.TemporaryDirectory(prefix="ws-cursor-") as td:
+        (Path(td) / "README.md").write_text("scratch workspace for AI Draft\n", encoding="utf-8")
+        result = Agent.prompt(
+            msg,
+            AgentOptions(
+                api_key=api_key,
+                model=model or DEFAULT_CURSOR_MODEL,
+                local=LocalAgentOptions(cwd=td),
+            ),
+        )
+    text = getattr(result, "result", None) or ""
+    status = getattr(result, "status", None)
+    if not str(text).strip():
+        raise HTTPException(502, f"Cursor agent returned no text (status={status})")
+    return str(text)
+
+
+def cursor_complete(api_key: str, prompt: str, model: str | None, system: str = AI_SYSTEM) -> str:
+    mdl = pick_cursor_model(api_key, model)
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": prompt},
+    ]
+    r = cursor_request(
+        "POST", "/v1/chat/completions", api_key,
+        json={"model": mdl, "messages": messages},
+        timeout=120,
+    )
+    if r is not None and r.ok:
+        try:
+            return r.json()["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError, ValueError):
+            pass
+    if r is not None and r.status_code in (401, 403):
+        raise HTTPException(401, f"Invalid Cursor API key: {_api_error_message(r)}")
+    r2 = cursor_request(
+        "POST", "/v1/responses", api_key,
+        json={"model": mdl, "input": messages},
+        timeout=120,
+    )
+    if r2 is not None and r2.ok:
+        text = _extract_responses_text(r2.json() if r2.content else {})
+        if text:
+            return text
+    return cursor_complete_sdk(api_key, prompt, mdl, system=system)
+
+
+def _api_error_message(resp: requests.Response) -> str:
+    try:
+        data = resp.json()
+        err = data.get("error")
+        if isinstance(err, dict):
+            return str(err.get("message") or err.get("type") or data)[:400]
+        if isinstance(err, str) and err:
+            return err[:400]
+        if data.get("message"):
+            return str(data["message"])[:400]
+    except Exception:
+        pass
+    text = (resp.text or "").strip()
+    return (text or f"HTTP {resp.status_code}")[:400]
+
+
+def _extract_responses_text(data: dict) -> str:
+    text = data.get("output_text")
+    if isinstance(text, str) and text.strip():
+        return text
+    parts: list[str] = []
+    for item in data.get("output") or []:
+        if not isinstance(item, dict):
+            continue
+        content = item.get("content")
+        if isinstance(content, str) and content:
+            parts.append(content)
+            continue
+        for block in content or []:
+            if isinstance(block, dict) and block.get("text"):
+                parts.append(str(block["text"]))
+        if item.get("text"):
+            parts.append(str(item["text"]))
+    return "\n".join(parts).strip()
+
+
+def openai_chat(base: str, api_key: str, model: str, messages: list[dict], *, xai: bool) -> str:
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    if xai:
+        resp = requests.post(
+            f"{base}/responses",
+            headers=headers,
+            json={"model": model, "input": messages},
+            timeout=120,
+        )
+        if resp.status_code in (401, 403):
+            raise HTTPException(401, f"Invalid API key: {_api_error_message(resp)}")
+        if resp.ok:
+            text = _extract_responses_text(resp.json() if resp.content else {})
+            if text:
+                return text
+        if resp.status_code not in (404, 405):
+            raise HTTPException(502, f"AI API error ({resp.status_code}): {_api_error_message(resp)}")
+    payload: dict[str, Any] = {"model": model, "messages": messages}
+    if not xai:
+        payload["temperature"] = 0.4
+    resp = requests.post(f"{base}/chat/completions", headers=headers, json=payload, timeout=120)
+    if resp.status_code in (401, 403):
+        raise HTTPException(401, f"Invalid API key: {_api_error_message(resp)}")
+    if not resp.ok:
+        raise HTTPException(502, f"AI API error ({resp.status_code}): {_api_error_message(resp)}")
+    data = resp.json()
+    try:
+        return data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError) as e:
+        raise HTTPException(502, f"Unexpected AI response: {e}")
+
+
+def draft_with_openai_compatible(base_url: str, api_key: str, prompt: str, model: str | None = None, provider: str | None = None) -> dict:
+    base, key, mdl, kind = resolve_ai_config(base_url, api_key, model, provider)
+    if kind == "cursor":
+        content = cursor_complete(key, prompt, mdl, system=AI_SYSTEM)
+    else:
+        content = openai_chat(
+            base, key, mdl,
+            [{"role": "system", "content": AI_SYSTEM}, {"role": "user", "content": prompt}],
+            xai=(kind == "xai"),
+        )
+    return parse_ai_graph(content)
+
+
+def test_ai_connection(base_url: str | None, api_key: str, model: str | None, provider: str | None) -> dict:
+    key = (api_key or "").strip()
+    if not key:
+        raise HTTPException(400, "API key is required")
+    if detect_ai_kind(provider, base_url or "", key) == "cursor":
+        return test_cursor_key(key)
+    base, key, mdl, kind = resolve_ai_config(base_url, api_key, model, provider)
+    listed: list[str] = []
+    if kind != "xai":
+        r = requests.get(f"{base}/models", headers={"Authorization": f"Bearer {key}"}, timeout=25)
+        if r.status_code in (401, 403):
+            raise HTTPException(401, f"Invalid API key: {_api_error_message(r)}")
+        if r.ok:
+            data = r.json() if r.content else {}
+            listed = [m.get("id") for m in (data.get("data") or []) if isinstance(m, dict) and m.get("id")]
+            return {
+                "ok": True,
+                "provider": "OpenAI-compatible",
+                "base_url": base,
+                "model": mdl,
+                "models": listed[:16],
+                "message": f"Connected to {base}" + (f" ({len(listed)} models)" if listed else ""),
+            }
+    openai_chat(base, key, mdl, [{"role": "user", "content": "Reply with the single word ok."}], xai=(kind == "xai"))
+    return {
+        "ok": True,
+        "provider": "xAI Grok" if kind == "xai" else "OpenAI-compatible",
+        "base_url": base,
+        "model": mdl,
+        "models": listed,
+        "message": f"Connected to {base} using {mdl}",
+    }
+
+
+@api.post("/ai/test")
+async def ai_test(body: AiTestRequest):
+    try:
+        return await asyncio.to_thread(
+            test_ai_connection, body.base_url, body.api_key, body.model, body.provider
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("AI connection test failed: %s", e)
+        raise HTTPException(502, f"Connection test failed: {e}")
+
+
 @api.post("/ai/draft")
 async def ai_draft(body: DraftRequest):
+    # User-configured key (Grok / OpenAI / custom) takes precedence.
+    if body.api_key:
+        try:
+            graph = await asyncio.to_thread(
+                draft_with_openai_compatible,
+                body.base_url, body.api_key, body.prompt, body.model, body.provider,
+            )
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error("AI draft (custom endpoint) failed: %s", e)
+            raise HTTPException(502, f"AI generation failed: {e}")
+        if not graph["nodes"]:
+            raise HTTPException(422, "AI could not produce a valid workflow from that description")
+        return graph
+
     if not EMERGENT_KEY:
-        raise HTTPException(503, "AI drafting is not configured (missing EMERGENT_LLM_KEY)")
+        raise HTTPException(503, "AI drafting is not configured (set an API key in Settings, or EMERGENT_LLM_KEY)")
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
     except ImportError:
@@ -480,6 +837,13 @@ async def startup_objstore():
             logger.info("Object storage initialized")
         except Exception as e:
             logger.error("Object storage init failed: %s", e)
+    if STORAGE_KIND == "sqlite" and os.environ.get("WORKFLOW_SEED_SAMPLES", "1") != "0":
+        try:
+            result = await seed_sample_projects(storage, only_if_empty=True)
+            if result["inserted"]:
+                logger.info("Seeded %d sample workflow(s)", len(result["inserted"]))
+        except Exception as e:
+            logger.error("Sample workflow seed failed: %s", e)
 
 app.add_middleware(
     CORSMiddleware,

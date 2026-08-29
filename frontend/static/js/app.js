@@ -1,7 +1,7 @@
 import { api } from './api.js';
 import { state, loadProject, addNode, addConnection, commit } from './state.js';
 import { render, fitView, applyTransform } from './canvas.js';
-import { initTheme, buildPalette, initPaletteToggle, initPicker, initDocPanel, wireTopbar, wireImport, wireCreateProject, renderDashboard, closeDoc, showToast, wireAiDraft } from './ui.js';
+import { initTheme, buildPalette, initPaletteToggle, initPicker, initDocPanel, wireTopbar, wireImport, wireSampleProjects, wireCreateProject, renderDashboard, closeDoc, showToast, wireAiDraft, wireImageCreator, wireSettings } from './ui.js';
 import { wirePlayControls, exitPlay, enterPlay, clearPlayStack } from './play.js';
 import { initMinimap } from './minimap.js';
 
@@ -95,9 +95,12 @@ initPicker();
 initDocPanel();
 wireTopbar(goHome);
 wireImport(() => renderDashboard(openProject));
+wireSampleProjects(() => renderDashboard(openProject));
 wireCreateProject(openProject);
 wirePlayControls();
 wireAiDraft();
+wireImageCreator();
+wireSettings();
 initMinimap();
 
 document.getElementById('parent-btn').addEventListener('click', () => {

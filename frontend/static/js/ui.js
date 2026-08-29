@@ -1,8 +1,9 @@
 import { api } from './api.js';
-import { NODE_TYPES, DIRV, OPPOSITE, nodeSize } from './nodes.js';
-import { state, bus, emit, loadProject, getNode, addNode, addConnection, updateNode, deleteNode, undo, redo, commit } from './state.js';
-import { render, fitView, setZoom, screenToWorld, onPickerRequest, applyTransform } from './canvas.js';
+import { NODE_TYPES, DIRV, OPPOSITE, nodeSize, typeDef, CUSTOM_COLORS } from './nodes.js';
+import { state, bus, emit, loadProject, getNode, addNode, addConnection, updateNode, deleteNode, undo, redo, commit, setSelection } from './state.js';
+import { render, fitView, setZoom, screenToWorld, onPickerRequest, applyTransform, buildFlowSvg } from './canvas.js';
 import { autoLayout } from './layout.js';
+import { getSettings, saveSettings } from './settings.js';
 
 // ---------- toasts ----------
 bus.addEventListener('toast', (e) => showToast(e.detail.message, e.detail.type));
@@ -55,13 +56,18 @@ export function buildPalette() {
       const canvas = document.getElementById('canvas');
       const r = canvas.getBoundingClientRect();
       const wp = screenToWorld(r.left + r.width / 2, r.top + r.height / 2);
-      addNode(type, { x: wp.x - def.w / 2, y: wp.y - def.h / 2 });
+      const pos = { x: wp.x - def.w / 2, y: wp.y - def.h / 2 };
+      if (type === 'custom') openCustomProcessModal({ position: pos });
+      else addNode(type, pos);
     });
     list.appendChild(item);
   });
 }
 
-bus.addEventListener('palettedrop', (e) => addNode(e.detail.type, e.detail.position));
+bus.addEventListener('palettedrop', (e) => {
+  if (e.detail.type === 'custom') openCustomProcessModal({ position: e.detail.position });
+  else addNode(e.detail.type, e.detail.position);
+});
 
 // ---------- palette collapse / expand ----------
 export function initPaletteToggle() {
@@ -113,7 +119,7 @@ function pickType(type) {
   if (!pending) return;
   const ctx = pending;
   hidePicker();
-  const def = NODE_TYPES[type];
+  const def = typeDef(type);
   let pos;
   if (ctx.worldPos) {
     pos = { x: ctx.worldPos.x - def.w / 2, y: ctx.worldPos.y - def.h / 2 };
@@ -127,10 +133,26 @@ function pickType(type) {
       y: src.position.y + dy * (h / 2 + gap + def.h / 2) + (h - def.h) / 2,
     };
   }
-  const node = addNode(type, pos, { silent: true });
-  if (!node) { render(); return; }
-  addConnection(ctx.sourceId, ctx.sourceDir, node.id, OPPOSITE[ctx.sourceDir], { silent: true });
-  commit();
+  if (type === 'custom') {
+    openCustomProcessModal({ position: pos, connect: ctx });
+    return;
+  }
+  placeConnectedNode(type, pos, ctx);
+}
+
+function placeNodeAndMaybeConnect(type, pos, connect, extra = {}) {
+  const node = addNode(type, pos, { silent: !!connect, ...extra });
+  if (!node) { render(); return null; }
+  if (connect) {
+    addConnection(connect.sourceId, connect.sourceDir, node.id, OPPOSITE[connect.sourceDir], { silent: true });
+    commit();
+    setSelection(node.id, null);
+  }
+  return node;
+}
+
+function placeConnectedNode(type, pos, ctx) {
+  placeNodeAndMaybeConnect(type, pos, ctx);
 }
 
 // ---------- documentation panel (Quill) ----------
@@ -141,6 +163,10 @@ let docDirty = false;
 
 export function initDocPanel() {
   bus.addEventListener('opendoc', (e) => openDoc(e.detail.nodeId));
+  bus.addEventListener('selection', syncDocToSelection);
+  bus.addEventListener('graph', () => {
+    if (docNodeId && !getNode(docNodeId)) closeDoc({ keepSelection: true });
+  });
   document.getElementById('doc-close-btn').addEventListener('click', closeDoc);
   document.getElementById('doc-delete-btn').addEventListener('click', () => {
     if (!docNodeId) return;
@@ -153,6 +179,7 @@ export function initDocPanel() {
   document.getElementById('doc-title').addEventListener('input', (e) => {
     document.getElementById('doc-heading').textContent = e.target.value.trim() || 'Node';
   });
+  initShortDescResize();
   document.getElementById('edit-docs-btn').addEventListener('click', () => {
     if (!docNodeId) return;
     document.getElementById('doc-editor-heading').textContent = document.getElementById('doc-title').value.trim() || 'Documentation';
@@ -173,6 +200,78 @@ export function initDocPanel() {
   document.getElementById('link-add-btn').addEventListener('click', showLinkForm);
   document.getElementById('link-cancel-btn').addEventListener('click', hideLinkForm);
   document.getElementById('link-save-btn').addEventListener('click', addLink);
+  document.getElementById('doc-collapse-btn').addEventListener('click', toggleDocCollapse);
+}
+
+// ---------- properties panel collapse ----------
+function setDocCollapsed(collapsed) {
+  const btn = document.getElementById('doc-collapse-btn');
+  docPanel.classList.toggle('collapsed', collapsed);
+  localStorage.setItem('ws-doc-collapsed', collapsed ? '1' : '0');
+  btn.textContent = collapsed ? '\u00ab' : '\u00bb';
+  btn.title = collapsed ? 'Expand properties' : 'Collapse properties';
+  btn.setAttribute('aria-label', btn.title);
+}
+
+function toggleDocCollapse() {
+  setDocCollapsed(!docPanel.classList.contains('collapsed'));
+}
+
+const SHORT_DESC_MAX_LINES = 5;
+let shortDescManual = false;
+let shortDescAutosizing = false;
+
+function shortDescMetrics(el) {
+  const cs = getComputedStyle(el);
+  const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.45;
+  const pad = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const border = parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+  return {
+    min: lh + pad + border,
+    maxAuto: lh * SHORT_DESC_MAX_LINES + pad + border,
+  };
+}
+
+function fitShortDesc() {
+  const el = document.getElementById('doc-short');
+  if (!el) return;
+  const { min, maxAuto } = shortDescMetrics(el);
+  if (shortDescManual && el.offsetHeight > maxAuto + 1) return;
+
+  shortDescAutosizing = true;
+  el.style.height = 'auto';
+  const next = Math.max(min, Math.min(el.scrollHeight + 2, maxAuto));
+  el.style.height = `${next}px`;
+  requestAnimationFrame(() => { shortDescAutosizing = false; });
+}
+
+function resetShortDescSize() {
+  const el = document.getElementById('doc-short');
+  shortDescManual = false;
+  shortDescAutosizing = true;
+  if (el) el.style.height = '';
+  fitShortDesc();
+}
+
+function initShortDescResize() {
+  const el = document.getElementById('doc-short');
+  el.addEventListener('input', fitShortDesc);
+  if (typeof ResizeObserver === 'undefined') return;
+  let primed = false;
+  new ResizeObserver(() => {
+    if (shortDescAutosizing) return;
+    if (!primed) { primed = true; return; }
+    shortDescManual = true;
+  }).observe(el);
+}
+
+function applyDocCollapsePref() {
+  const s = getSettings();
+  const btn = document.getElementById('doc-collapse-btn');
+  const collapsible = s.properties.collapsible !== false;
+  btn.style.display = collapsible ? '' : 'none';
+  if (!collapsible) setDocCollapsed(false);
+  else if (localStorage.getItem('ws-doc-collapsed') === '1') setDocCollapsed(true);
 }
 
 async function onAttachFile() {
@@ -250,7 +349,14 @@ function ensureQuill() {
   quill.on('text-change', (d, o, source) => { if (source === 'user') docDirty = true; });
 }
 
+function syncDocToSelection() {
+  const id = state.selection.nodeId;
+  if (id) openDoc(id);
+  else closeDoc({ keepSelection: true });
+}
+
 async function openDoc(nodeId) {
+  if (docNodeId === nodeId && !docPanel.classList.contains('hidden')) return;
   if (docNodeId && docNodeId !== nodeId) saveDoc();
   const n = getNode(nodeId);
   if (!n) return;
@@ -258,16 +364,19 @@ async function openDoc(nodeId) {
   docNodeId = nodeId;
   docDirty = false;
   document.getElementById('doc-heading').textContent = n.title || 'Node';
-  document.getElementById('doc-type-pill').textContent = NODE_TYPES[n.type].label.toUpperCase();
+  document.getElementById('doc-type-pill').textContent = typeDef(n.type).label.toUpperCase();
   document.getElementById('doc-title').value = n.title;
   document.getElementById('doc-short').value = n.shortDescription || '';
   quill.root.innerHTML = n.detailedDescription || '';
+  renderAccentPicker(n);
   renderAttachments(n);
   renderLinks(n);
   hideLinkForm();
   if (n.type === 'subflow' && !projectsCache.length) await loadProjectsCache();
   renderSubflowSection(n);
+  applyDocCollapsePref();
   docPanel.classList.remove('hidden');
+  resetShortDescSize();
 }
 
 function saveDoc() {
@@ -275,7 +384,7 @@ function saveDoc() {
   const n = getNode(docNodeId);
   if (!n) return;
   updateNode(docNodeId, {
-    title: document.getElementById('doc-title').value.trim() || NODE_TYPES[n.type].label,
+    title: document.getElementById('doc-title').value.trim() || typeDef(n.type).label,
     shortDescription: document.getElementById('doc-short').value.trim(),
     detailedDescription: quill.root.innerHTML === '<p><br></p>' ? '' : quill.root.innerHTML,
   });
@@ -445,11 +554,12 @@ function removeLink(id) {
   renderLinks(getNode(docNodeId));
 }
 
-export function closeDoc() {
+export function closeDoc(opts = {}) {
   saveDoc();
   docNodeId = null;
   docPanel.classList.add('hidden');
   document.getElementById('doc-editor-modal').classList.add('hidden');
+  if (!opts.keepSelection && state.selection.nodeId) setSelection(null, null);
 }
 
 // ---------- topbar ----------
@@ -466,7 +576,11 @@ export function wireTopbar(goHome) {
 
   const layoutBtn = document.getElementById('layout-btn');
   const layoutMenu = document.getElementById('layout-menu');
-  layoutBtn.addEventListener('click', (e) => { e.stopPropagation(); layoutMenu.classList.toggle('hidden'); });
+  layoutBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('flow-image-menu')?.classList.add('hidden');
+    layoutMenu.classList.toggle('hidden');
+  });
   document.addEventListener('click', () => layoutMenu.classList.add('hidden'));
   layoutMenu.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
     layoutMenu.classList.add('hidden');
@@ -504,6 +618,296 @@ export function wireAiDraft() {
   document.getElementById('ai-draft-btn').addEventListener('click', openAiModal);
 }
 
+export function wireImageCreator() {
+  const btn = document.getElementById('flow-image-btn');
+  const menu = document.getElementById('flow-image-menu');
+  if (!btn || !menu) return;
+  btn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('layout-menu')?.classList.add('hidden');
+    menu.classList.toggle('hidden');
+  });
+  document.addEventListener('click', () => menu.classList.add('hidden'));
+  menu.querySelectorAll('button').forEach((b) => b.addEventListener('click', () => {
+    menu.classList.add('hidden');
+    downloadFlowGraphic(b.dataset.fmt);
+  }));
+}
+
+function slugFilename(text, ext) {
+  const base = (text || 'workflow').toLowerCase().replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').slice(0, 40) || 'workflow';
+  return `${base}.${ext}`;
+}
+
+function downloadBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function svgToPngBlob(svg, bg) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const vb = svg.match(/viewBox=["']([^"']+)["']/i);
+      let w = 1024, h = 768;
+      if (vb) {
+        const p = vb[1].trim().split(/[\s,]+/).map(Number);
+        if (p.length === 4 && p[2] > 0 && p[3] > 0) {
+          w = Math.round(p[2]);
+          h = Math.round(p[3]);
+        }
+      }
+      const scale = Math.min(2, 2048 / Math.max(w, h));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = bg || '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((b) => {
+        URL.revokeObjectURL(url);
+        if (!b) reject(new Error('Could not export PNG'));
+        else resolve(b);
+      }, 'image/png');
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Could not rasterize SVG')); };
+    img.src = url;
+  });
+}
+
+async function downloadFlowGraphic(fmt) {
+  const built = buildFlowSvg();
+  if (!built) { showToast('Add shapes to the canvas first', 'error'); return; }
+  const base = state.project?.name || 'workflow';
+  if (fmt === 'svg') {
+    downloadBlob(new Blob([built.svg], { type: 'image/svg+xml;charset=utf-8' }), slugFilename(base, 'svg'));
+    showToast('SVG downloaded');
+    return;
+  }
+  try {
+    const blob = await svgToPngBlob(built.svg, built.bg);
+    downloadBlob(blob, slugFilename(base, 'png'));
+    showToast('PNG downloaded');
+  } catch (e) {
+    showToast(e.message, 'error');
+  }
+}
+
+function colorSwatchesHtml(selected) {
+  const cur = (selected || CUSTOM_COLORS[0]).toLowerCase();
+  return CUSTOM_COLORS.map((c) =>
+    `<button type="button" class="color-swatch${c.toLowerCase() === cur ? ' selected' : ''}" data-color="${c}" style="background:${c}" title="${c}"></button>`
+  ).join('');
+}
+
+function renderAccentPicker(n) {
+  const wrap = document.getElementById('doc-accent');
+  const swatches = document.getElementById('doc-accent-swatches');
+  if (!wrap || !swatches) return;
+  const show = n.type === 'custom';
+  wrap.classList.toggle('hidden', !show);
+  if (!show) return;
+  swatches.innerHTML = colorSwatchesHtml(n.accent || typeDef('custom').color);
+  swatches.querySelectorAll('.color-swatch').forEach((b) => {
+    b.addEventListener('click', () => {
+      updateNode(n.id, { accent: b.dataset.color });
+      renderAccentPicker(getNode(n.id));
+    });
+  });
+}
+
+function openCustomProcessModal({ position, connect } = {}) {
+  const root = document.getElementById('modal-root');
+  const def = typeDef('custom');
+  let accent = def.color;
+  root.innerHTML = `
+    <div class="modal-backdrop" data-testid="custom-process-modal">
+      <div class="modal">
+        <h2>Custom process</h2>
+        <p class="ai-hint">Give this step a name and color. It works like a process node, with your own label on the canvas.</p>
+        <label class="field-label">Name</label>
+        <input class="field-input" id="cp-name" data-testid="custom-process-name" maxlength="80" placeholder="e.g. Review invoice" />
+        <label class="field-label">Color</label>
+        <div class="color-swatches" id="cp-swatches">${colorSwatchesHtml(accent)}</div>
+        <div class="modal-actions">
+          <button class="btn ghost" id="cp-cancel" data-testid="custom-process-cancel-btn">Cancel</button>
+          <button class="btn primary" id="cp-add" data-testid="custom-process-add-btn">Add to canvas</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => { root.innerHTML = ''; };
+  const swatchWrap = root.querySelector('#cp-swatches');
+  const paint = () => { swatchWrap.innerHTML = colorSwatchesHtml(accent); bindSwatches(); };
+  const bindSwatches = () => {
+    swatchWrap.querySelectorAll('.color-swatch').forEach((b) => {
+      b.addEventListener('click', () => { accent = b.dataset.color; paint(); });
+    });
+  };
+  bindSwatches();
+  root.querySelector('#cp-cancel').addEventListener('click', close);
+  root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target === e.currentTarget) close(); });
+  const submit = () => {
+    const title = root.querySelector('#cp-name').value.trim() || def.label;
+    const canvas = document.getElementById('canvas');
+    const r = canvas.getBoundingClientRect();
+    const wp = screenToWorld(r.left + r.width / 2, r.top + r.height / 2);
+    const pos = position || { x: wp.x - def.w / 2, y: wp.y - def.h / 2 };
+    close();
+    placeNodeAndMaybeConnect('custom', pos, connect, { title, accent });
+  };
+  root.querySelector('#cp-add').addEventListener('click', submit);
+  root.querySelector('#cp-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
+  setTimeout(() => root.querySelector('#cp-name').focus(), 50);
+}
+
+function aiAuthPayload(extra) {
+  const s = getSettings();
+  const payload = { ...extra };
+  if (s.ai.apiKey) {
+    payload.api_key = s.ai.apiKey;
+    if (s.ai.baseUrl) payload.base_url = s.ai.baseUrl;
+    if (s.ai.model) payload.model = s.ai.model;
+    if (s.ai.provider) payload.provider = s.ai.provider;
+  }
+  return payload;
+}
+
+// ---------- settings (preferences) ----------
+export function wireSettings() {
+  document.getElementById('dash-settings-btn').addEventListener('click', openSettingsModal);
+}
+
+function openSettingsModal() {
+  const s = getSettings();
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `
+    <div class="modal-backdrop" data-testid="settings-modal">
+      <div class="modal">
+        <h2>Settings</h2>
+        <p class="settings-note">These preferences are stored locally in your browser.</p>
+
+        <div class="settings-section">
+          <h3>AI Draft</h3>
+          <p class="settings-note">Cursor keys (<code>crsr_</code>) use <code>https://api.cursor.com</code>. Grok keys (<code>xai-</code>) use <code>https://api.x.ai/v1</code>. Leave base URL blank and Auto-detect will pick the right host.</p>
+          <label class="field-label">Provider</label>
+          <select class="field-input" id="set-ai-provider" data-testid="settings-ai-provider">
+            <option value="auto" ${s.ai.provider === 'auto' || !s.ai.provider ? 'selected' : ''}>Auto-detect</option>
+            <option value="grok" ${s.ai.provider === 'grok' ? 'selected' : ''}>xAI Grok</option>
+            <option value="openai" ${s.ai.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+            <option value="cursor" ${s.ai.provider === 'cursor' ? 'selected' : ''}>Cursor (crsr_)</option>
+            <option value="custom" ${s.ai.provider === 'custom' ? 'selected' : ''}>Custom (OpenAI-compatible)</option>
+          </select>
+          <label class="field-label">Base URL <span class="hint">(optional for Grok)</span></label>
+          <input class="field-input" id="set-ai-baseurl" data-testid="settings-ai-baseurl" placeholder="https://api.x.ai/v1" value="${escapeHtml(s.ai.baseUrl)}" autocomplete="off" />
+          <label class="field-label">Model <span class="hint">(optional)</span></label>
+          <input class="field-input" id="set-ai-model" data-testid="settings-ai-model" placeholder="grok-4.6" value="${escapeHtml(s.ai.model || '')}" autocomplete="off" />
+          <label class="field-label">API key</label>
+          <input class="field-input" id="set-ai-key" data-testid="settings-ai-key" type="password" placeholder="xai-... or sk-..." value="${escapeHtml(s.ai.apiKey)}" autocomplete="off" />
+          <div class="settings-test-row">
+            <button type="button" class="btn ghost" id="set-ai-test" data-testid="settings-ai-test-btn">Test connection</button>
+            <p class="settings-test-status hint" id="set-ai-test-status" data-testid="settings-ai-test-status"></p>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Play</h3>
+          <label class="checkbox-row"><input type="checkbox" id="set-play-summary" data-testid="settings-play-summary" ${s.play.showSummary ? 'checked' : ''} /> Show summary of the current step</label>
+        </div>
+
+        <div class="settings-section">
+          <h3>Properties</h3>
+          <label class="checkbox-row"><input type="checkbox" id="set-props-collapsible" data-testid="settings-props-collapsible" ${s.properties.collapsible !== false ? 'checked' : ''} /> Enable expand / collapse mode</label>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn ghost" id="set-cancel" data-testid="settings-cancel-btn">Cancel</button>
+          <button class="btn primary" id="set-save" data-testid="settings-save-btn">Save</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => { root.innerHTML = ''; };
+  root.querySelector('#set-cancel').addEventListener('click', close);
+  root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target === e.currentTarget) close(); });
+  const providerEl = root.querySelector('#set-ai-provider');
+  const baseEl = root.querySelector('#set-ai-baseurl');
+  const modelEl = root.querySelector('#set-ai-model');
+  providerEl.addEventListener('change', () => {
+    if (providerEl.value === 'grok') {
+      if (!baseEl.value.trim()) baseEl.value = 'https://api.x.ai/v1';
+      if (!modelEl.value.trim()) modelEl.placeholder = 'grok-4.6';
+    } else if (providerEl.value === 'openai') {
+      if (!baseEl.value.trim()) baseEl.value = 'https://api.openai.com/v1';
+      if (!modelEl.value.trim()) modelEl.placeholder = 'gpt-4o-mini';
+    } else if (providerEl.value === 'cursor') {
+      if (!baseEl.value.trim()) baseEl.value = 'https://api.cursor.com';
+      if (!modelEl.value.trim()) modelEl.placeholder = 'grok-4.6';
+    }
+  });
+  root.querySelector('#set-ai-test').addEventListener('click', () => testAiConnection(root));
+  root.querySelector('#set-save').addEventListener('click', () => {
+    saveSettings({
+      ai: {
+        provider: root.querySelector('#set-ai-provider').value,
+        baseUrl: root.querySelector('#set-ai-baseurl').value.trim(),
+        apiKey: root.querySelector('#set-ai-key').value.trim(),
+        model: root.querySelector('#set-ai-model').value.trim(),
+      },
+      play: { showSummary: root.querySelector('#set-play-summary').checked },
+      properties: { collapsible: root.querySelector('#set-props-collapsible').checked },
+    });
+    close();
+    showToast('Settings saved');
+  });
+}
+
+async function testAiConnection(root) {
+  const key = root.querySelector('#set-ai-key').value.trim();
+  const status = root.querySelector('#set-ai-test-status');
+  const btn = root.querySelector('#set-ai-test');
+  status.classList.remove('ok', 'err');
+  if (!key) {
+    status.textContent = 'Enter an API key first';
+    status.classList.add('err');
+    return;
+  }
+  btn.disabled = true;
+  btn.textContent = 'Testing\u2026';
+  status.textContent = 'Checking connection\u2026';
+  try {
+    const res = await fetch('/api/ai/test', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: key,
+        base_url: root.querySelector('#set-ai-baseurl').value.trim() || null,
+        model: root.querySelector('#set-ai-model').value.trim() || null,
+        provider: root.querySelector('#set-ai-provider').value,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      const msg = data.detail || `Test failed (${res.status})`;
+      throw new Error(typeof msg === 'string' ? msg : JSON.stringify(msg));
+    }
+    status.textContent = data.message || 'Connected';
+    status.classList.add('ok');
+    showToast(data.message || 'AI connection OK');
+  } catch (e) {
+    status.textContent = e.message;
+    status.classList.add('err');
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Test connection';
+  }
+}
+
 function openAiModal() {
   const root = document.getElementById('modal-root');
   root.innerHTML = `
@@ -530,10 +934,11 @@ function openAiModal() {
     btn.disabled = true;
     btn.textContent = 'Generating\u2026';
     try {
+      const payload = aiAuthPayload({ prompt });
       const res = await fetch('/api/ai/draft', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prompt }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Generation failed (${res.status})`);
       const graph = await res.json();
@@ -592,6 +997,22 @@ export function wireImport(refresh) {
       showToast('Import failed: ' + e.message, 'error');
     }
   });
+}
+
+export function wireSampleProjects(refresh) {
+  const load = async () => {
+    try {
+      const res = await api.seedSamples();
+      const n = res.insertedCount || 0;
+      if (n) showToast(`Loaded ${n} sample workflow${n === 1 ? '' : 's'}`);
+      else showToast('Sample workflows are already on the dashboard');
+      refresh();
+    } catch (e) {
+      showToast('Could not load samples: ' + e.message, 'error');
+    }
+  };
+  document.getElementById('load-samples-btn').addEventListener('click', load);
+  document.getElementById('empty-samples-btn').addEventListener('click', load);
 }
 
 // ---------- dashboard ----------

@@ -21,4 +21,5 @@ export const api = {
   deleteProject: (id) => req('DELETE', `/projects/${id}`),
   saveGraph: (id, graph) => req('PUT', `/projects/${id}/graph`, graph),
   importProject: (payload) => req('POST', '/projects/import', payload),
+  seedSamples: () => req('POST', '/projects/seed-samples'),
 };

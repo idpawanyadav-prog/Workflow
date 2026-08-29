@@ -1,4 +1,4 @@
-import { NODE_TYPES, DIRS, DIRV, OPPOSITE, portPoint, nodeSize } from './nodes.js';
+import { DIRS, DIRV, OPPOSITE, portPoint, nodeSize, typeDef, nodeAppearance } from './nodes.js';
 import { state, bus, emit, getNode, addConnection, setSelection, deleteSelection, commit, validate } from './state.js';
 
 const canvas = document.getElementById('canvas');
@@ -55,14 +55,31 @@ export function fitView(animated = true) {
   applyTransform(animated);
 }
 
-export function centerOn(nodeId, animated = true) {
+export function centerOn(nodeId, animated = true, zoomTo) {
   const n = getNode(nodeId);
   if (!n) return;
   const { w, h } = nodeSize(n);
   const r = canvas.getBoundingClientRect();
+  if (zoomTo != null) {
+    state.zoom = Math.min(2.5, Math.max(0.2, zoomTo));
+  }
   state.panX = r.width / 2 - (n.position.x + w / 2) * state.zoom;
   state.panY = r.height / 2 - (n.position.y + h / 2) * state.zoom;
   applyTransform(animated);
+}
+
+/** Zoom close enough that the node is the focus, then center on it. */
+export function zoomToNode(nodeId, animated = true) {
+  const n = getNode(nodeId);
+  if (!n) return;
+  const { w, h } = nodeSize(n);
+  const r = canvas.getBoundingClientRect();
+  const padX = Math.min(280, r.width * 0.28);
+  const padY = Math.min(220, r.height * 0.28);
+  const z = Math.min(2.2, Math.max(1.35,
+    Math.min((r.width - padX * 2) / Math.max(w, 1), (r.height - padY * 2) / Math.max(h, 1)),
+  ));
+  centerOn(nodeId, animated, z);
 }
 
 // ---------- rendering ----------
@@ -75,7 +92,7 @@ export function render() {
 function renderNodes() {
   nodeLayer.innerHTML = '';
   state.nodes.forEach((n) => {
-    const def = NODE_TYPES[n.type];
+    const def = nodeAppearance(n);
     const el = document.createElement('div');
     el.className = `wf-node shape-${def.shape}`;
     el.dataset.id = n.id;
@@ -166,8 +183,9 @@ function mkPath(d, cls) {
 }
 
 function ctrlPoints(p1, d1, p2, d2) {
-  const dist = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-  const o = Math.min(Math.max(dist / 2, 50), 160);
+  const ax = DIRV[d1][0] ? Math.abs(p2.x - p1.x) : Math.abs(p2.y - p1.y);
+  const across = DIRV[d1][0] ? Math.abs(p2.y - p1.y) : Math.abs(p2.x - p1.x);
+  const o = Math.min(Math.max(ax / 2, 36), across > 180 ? 72 : 96);
   return [
     { x: p1.x + DIRV[d1][0] * o, y: p1.y + DIRV[d1][1] * o },
     { x: p2.x + DIRV[d2][0] * o, y: p2.y + DIRV[d2][1] * o },
@@ -185,6 +203,75 @@ function bezierMid(p1, d1, p2, d2) {
   return {
     x: mt ** 3 * p1.x + 3 * mt ** 2 * t * c1.x + 3 * mt * t ** 2 * c2.x + t ** 3 * p2.x,
     y: mt ** 3 * p1.y + 3 * mt ** 2 * t * c1.y + 3 * mt * t ** 2 * c2.y + t ** 3 * p2.y,
+  };
+}
+
+export function buildFlowSvg() {
+  if (!state.nodes.length) return null;
+  const dark = document.documentElement.dataset.theme === 'dark';
+  const C = dark
+    ? { bg: '#0A0A0A', surface: '#141414', border: '#333333', text: '#F5F5F5', text2: '#A3A3A3', shadow: 'rgba(255,255,255,0.16)' }
+    : { bg: '#F7F7F5', surface: '#FFFFFF', border: '#1A1A1A', text: '#1A1A1A', text2: '#525252', shadow: 'rgba(26,26,26,1)' };
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  state.nodes.forEach((n) => {
+    const { w, h } = nodeSize(n);
+    minX = Math.min(minX, n.position.x); minY = Math.min(minY, n.position.y);
+    maxX = Math.max(maxX, n.position.x + w); maxY = Math.max(maxY, n.position.y + h);
+  });
+  const pad = 56;
+  const ox = minX - pad, oy = minY - pad;
+  const width = Math.ceil(maxX - minX + pad * 2);
+  const height = Math.ceil(maxY - minY + pad * 2);
+  const X = (x) => x - ox;
+  const Y = (y) => y - oy;
+  const parts = [];
+  parts.push(`<rect width="${width}" height="${height}" fill="${C.bg}"/>`);
+  parts.push(`<defs><marker id="flow-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="${C.text2}"/></marker></defs>`);
+
+  state.connections.forEach((c) => {
+    const src = getNode(c.source), tgt = getNode(c.target);
+    if (!src || !tgt) return;
+    const p1 = portPoint(src, c.sourceDir), p2 = portPoint(tgt, c.targetDir);
+    const a = { x: X(p1.x), y: Y(p1.y) }, b = { x: X(p2.x), y: Y(p2.y) };
+    parts.push(`<path d="${edgePath(a, c.sourceDir, b, c.targetDir)}" fill="none" stroke="${C.text2}" stroke-width="2" marker-end="url(#flow-arrow)"/>`);
+    if (c.label) {
+      const m = bezierMid(a, c.sourceDir, b, c.targetDir);
+      const lw = c.label.length * 8 + 16;
+      parts.push(`<rect x="${(m.x - lw / 2).toFixed(1)}" y="${(m.y - 12).toFixed(1)}" width="${lw}" height="24" rx="4" fill="${C.surface}" stroke="${C.border}" stroke-width="1"/>`);
+      parts.push(`<text x="${m.x.toFixed(1)}" y="${(m.y + 4).toFixed(1)}" text-anchor="middle" font-family="ui-monospace, Consolas, monospace" font-size="11" font-weight="600" fill="${C.text}">${escapeHtml(c.label)}</text>`);
+    }
+  });
+
+  state.nodes.forEach((n) => {
+    const def = nodeAppearance(n);
+    const x = X(n.position.x), y = Y(n.position.y), w = def.w, h = def.h;
+    const iconInner = String(def.icon).replace(/^<svg[^>]*>/i, '').replace(/<\/svg>\s*$/i, '');
+    const title = escapeHtml(n.title || def.label);
+    if (def.shape === 'diamond') {
+      const cx = x + w / 2, cy = y + h / 2;
+      parts.push(`<polygon points="${cx + 4},${y + 8} ${x + w},${cy + 4} ${cx + 4},${y + h} ${x + 8},${cy + 4}" fill="${C.shadow}"/>`);
+      parts.push(`<polygon points="${cx},${y + 4} ${x + w - 4},${cy} ${cx},${y + h - 4} ${x + 4},${cy}" fill="${C.surface}" stroke="${C.border}" stroke-width="1.5"/>`);
+      parts.push(`<svg x="${cx - 10}" y="${y + h * 0.28}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${def.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconInner}</svg>`);
+      parts.push(`<text x="${cx}" y="${cy + 18}" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="12.5" font-weight="600" fill="${C.text}">${title}</text>`);
+    } else {
+      const rx = def.shape === 'pill' ? h / 2 : 8;
+      parts.push(`<rect x="${x + 4}" y="${y + 4}" width="${w}" height="${h}" rx="${rx}" fill="${C.shadow}"/>`);
+      parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${rx}" fill="${C.surface}" stroke="${C.border}" stroke-width="1"/>`);
+      if (def.shape === 'pill') {
+        parts.push(`<svg x="${x + 22}" y="${y + (h - 20) / 2}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${def.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconInner}</svg>`);
+        parts.push(`<text x="${x + 48}" y="${y + h / 2 + 5}" font-family="Segoe UI, system-ui, sans-serif" font-size="13.5" font-weight="600" fill="${C.text}">${title}</text>`);
+      } else {
+        parts.push(`<svg x="${x + 16}" y="${y + (h - 20) / 2}" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${def.color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${iconInner}</svg>`);
+        parts.push(`<text x="${x + 46}" y="${y + h / 2 - 2}" font-family="Segoe UI, system-ui, sans-serif" font-size="13.5" font-weight="600" fill="${C.text}">${title}</text>`);
+        parts.push(`<text x="${x + 46}" y="${y + h / 2 + 14}" font-family="ui-monospace, Consolas, monospace" font-size="9.5" font-weight="500" fill="${C.text2}">${escapeHtml(def.label.toUpperCase())}</text>`);
+      }
+    }
+  });
+
+  return {
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${parts.join('')}</svg>`,
+    width, height, bg: C.bg,
   };
 }
 
@@ -225,6 +312,7 @@ let drag = null; // {kind:'pan'|'node'|'port', ...}
 let lastNodeClick = { id: null, t: 0 };
 
 canvas.addEventListener('mousedown', (e) => {
+  if (e.target.closest('#zoom-controls, #node-picker, #validation-chip, #play-bar, #play-summary, #minimap')) return;
   if (state.play) {
     // During play mode, allow a double-click on a node to restart playback
     // from that node (manual detection since the canvas re-renders).
@@ -238,9 +326,11 @@ canvas.addEventListener('mousedown', (e) => {
       }
       lastNodeClick = { id: nodeEl.dataset.id, t: now };
     }
+    drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, panX: state.panX, panY: state.panY, moved: false };
+    canvas.classList.add('panning');
+    e.preventDefault();
     return;
   }
-  if (e.target.closest('#zoom-controls, #node-picker, #validation-chip, #play-bar, #minimap')) return;
   const port = e.target.closest('.port');
   const nodeEl = e.target.closest('.wf-node');
   if (port && nodeEl) {
@@ -267,6 +357,7 @@ canvas.addEventListener('mousedown', (e) => {
   const edgeG = e.target.closest('g.edge');
   if (edgeG) { setSelection(null, edgeG.dataset.id); render(); return; }
   drag = { kind: 'pan', sx: e.clientX, sy: e.clientY, panX: state.panX, panY: state.panY, moved: false };
+  canvas.classList.add('panning');
   hidePicker();
 });
 
@@ -299,12 +390,15 @@ window.addEventListener('mousemove', (e) => {
 window.addEventListener('mouseup', (e) => {
   if (!drag) return;
   const d = drag; drag = null;
+  canvas.classList.remove('panning');
   tempEdge.classList.add('hidden');
   nodeLayer.querySelectorAll('.drop-target').forEach((el) => el.classList.remove('drop-target'));
-  if (d.kind === 'pan' && !d.moved) { setSelection(null, null); render(); }
+  if (d.kind === 'pan' && d.moved) lastNodeClick = { id: null, t: 0 };
+  if (d.kind === 'pan' && !d.moved && !state.play) { setSelection(null, null); render(); }
   if (d.kind === 'node') {
     if (d.moved) { lastNodeClick = { id: null, t: 0 }; commit(); }
-    else { setSelection(d.id, null); render(); }
+    setSelection(d.id, null);
+    if (!d.moved) render();
   }
   if (d.kind === 'port') {
     const under = document.elementFromPoint(e.clientX, e.clientY)?.closest('.wf-node');
@@ -348,7 +442,7 @@ canvas.addEventListener('drop', (e) => {
   const type = e.dataTransfer.getData('nodeType');
   if (!type) return;
   const wp = screenToWorld(e.clientX, e.clientY);
-  const def = NODE_TYPES[type];
+  const def = typeDef(type);
   emit('palettedrop', { type, position: { x: wp.x - def.w / 2, y: wp.y - def.h / 2 } });
 });
 

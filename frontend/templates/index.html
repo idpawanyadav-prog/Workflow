@@ -26,8 +26,10 @@
         </div>
         <div class="dash-actions">
           <button class="btn ghost" id="import-project-btn" data-testid="import-project-btn">Import .wflow</button>
+          <button class="btn ghost" id="load-samples-btn" data-testid="load-samples-btn">Load samples</button>
           <input type="file" id="import-file-input" accept=".json,.wflow" hidden />
           <button class="btn ghost icon-btn" id="dash-theme-toggle" data-testid="dash-theme-toggle" title="Toggle theme"></button>
+          <button class="btn ghost icon-btn" id="dash-settings-btn" data-testid="dash-settings-btn" title="Settings" aria-label="Settings">&#9881;</button>
           <button class="btn primary" id="create-project-btn" data-testid="create-project-btn">+ New Workflow</button>
         </div>
       </header>
@@ -36,8 +38,11 @@
         <div id="dash-empty" class="dash-empty hidden" data-testid="dashboard-empty-state">
           <div class="empty-card">
             <h2>No workflows yet</h2>
-            <p>Create your first workflow to start designing, documenting and presenting your processes.</p>
-            <button class="btn primary" id="empty-create-btn" data-testid="empty-create-btn">+ New Workflow</button>
+            <p>Create your first workflow to start designing, documenting and presenting your processes — or load four sample charts with docs and dummy links.</p>
+            <div class="empty-actions">
+              <button class="btn primary" id="empty-create-btn" data-testid="empty-create-btn">+ New Workflow</button>
+              <button class="btn ghost" id="empty-samples-btn" data-testid="empty-samples-btn">Load sample workflows</button>
+            </div>
           </div>
         </div>
       </main>
@@ -65,6 +70,13 @@
           </div>
           <button class="btn ghost" id="export-btn" data-testid="export-btn">Export</button>
           <button class="btn ghost" id="ai-draft-btn" data-testid="ai-draft-btn">&#10022; AI Draft</button>
+          <div class="dropdown">
+            <button class="btn ghost" id="flow-image-btn" data-testid="flow-image-btn" title="Download this flow as SVG or PNG">SVG / Image &#9662;</button>
+            <div class="dropdown-menu hidden" id="flow-image-menu">
+              <button data-testid="flow-image-svg-btn" data-fmt="svg">Download SVG</button>
+              <button data-testid="flow-image-png-btn" data-fmt="png">Download PNG</button>
+            </div>
+          </div>
         </div>
         <div class="tb-right">
           <button class="btn ghost icon-btn" id="theme-toggle" data-testid="theme-toggle-btn" title="Toggle theme"></button>
@@ -109,6 +121,10 @@
             <span id="zoom-level" class="mono-label" data-testid="zoom-level">100%</span>
           </div>
           <div id="validation-chip" class="glass hidden" data-testid="validation-chip"></div>
+          <div id="play-summary" class="glass hidden" data-testid="play-summary">
+            <h3 id="play-summary-title"></h3>
+            <p id="play-summary-desc"></p>
+          </div>
           <div id="play-bar" class="glass hidden" data-testid="play-overlay">
             <button class="btn ghost icon-btn" id="play-exit-btn" data-testid="play-exit-btn" title="Exit play mode">&#10005;</button>
             <button class="btn ghost back-parent-btn hidden" id="play-back-parent-btn" data-testid="play-back-parent-btn" title="Back to parent flow">&#8617; <span id="play-back-parent-label">Parent</span></button>
@@ -128,6 +144,7 @@
               <h2 id="doc-heading" data-testid="doc-panel-heading">Node</h2>
             </div>
             <div class="doc-head-actions">
+              <button class="btn ghost icon-btn doc-collapse-btn" id="doc-collapse-btn" data-testid="doc-collapse-btn" title="Collapse properties" aria-label="Collapse properties">&#187;</button>
               <button class="btn danger-ghost" id="doc-delete-btn" data-testid="node-delete-btn">Delete</button>
               <button class="btn ghost icon-btn" id="doc-close-btn" data-testid="doc-close-btn">&#10005;</button>
             </div>
@@ -135,7 +152,7 @@
           <label class="field-label mono-label">Title</label>
           <input id="doc-title" class="field-input" data-testid="doc-title-input" maxlength="80" />
           <label class="field-label mono-label">Short description</label>
-          <textarea id="doc-short" class="field-input" data-testid="doc-short-input" rows="4" maxlength="240"></textarea>
+          <textarea id="doc-short" class="field-input" data-testid="doc-short-input" rows="1" maxlength="240"></textarea>
           <p class="field-hint">Shown on hover</p>
 
           <label class="field-label mono-label">Links</label>
@@ -159,6 +176,10 @@
           </button>
           <label class="field-label mono-label">Type</label>
           <div id="doc-type-pill" class="type-pill mono-label" data-testid="doc-type-pill">NODE</div>
+          <div id="doc-accent" class="hidden" data-testid="custom-color-section">
+            <label class="field-label mono-label">Color</label>
+            <div id="doc-accent-swatches" class="color-swatches"></div>
+          </div>
 
           <div id="doc-subflow" class="doc-subflow hidden" data-testid="subflow-link-section">
             <label class="field-label mono-label">Link to existing flow</label>
