@@ -98,12 +98,14 @@ function renderNodes() {
           <span class="node-title">${escapeHtml(n.title)}</span>
         </div>`;
     } else {
+      const sub = (n.type === 'subflow' && n.subflow && n.subflow.projectId) ? n.subflow : null;
       el.innerHTML = `
         <div class="node-inner">
           <span class="node-icon">${def.icon}</span>
           <div class="node-text">
             <span class="node-title">${escapeHtml(n.title)}</span>
             <span class="node-type mono-label">${def.label.toUpperCase()}</span>
+            ${sub ? `<span class="node-subflow">&#8601; ${escapeHtml(sub.name)}<span class="node-subflow-count"> &middot; ${sub.nodeCount ?? 0}N / ${sub.connectionCount ?? 0}L</span></span>` : ''}
           </div>
         </div>`;
     }
@@ -223,7 +225,21 @@ let drag = null; // {kind:'pan'|'node'|'port', ...}
 let lastNodeClick = { id: null, t: 0 };
 
 canvas.addEventListener('mousedown', (e) => {
-  if (state.play) return;
+  if (state.play) {
+    // During play mode, allow a double-click on a node to restart playback
+    // from that node (manual detection since the canvas re-renders).
+    const nodeEl = e.target.closest('.wf-node');
+    if (nodeEl) {
+      const now = Date.now();
+      if (lastNodeClick.id === nodeEl.dataset.id && now - lastNodeClick.t < 450) {
+        lastNodeClick = { id: null, t: 0 };
+        emit('playfrom', { nodeId: nodeEl.dataset.id });
+        return;
+      }
+      lastNodeClick = { id: nodeEl.dataset.id, t: now };
+    }
+    return;
+  }
   if (e.target.closest('#zoom-controls, #node-picker, #validation-chip, #play-bar, #minimap')) return;
   const port = e.target.closest('.port');
   const nodeEl = e.target.closest('.wf-node');

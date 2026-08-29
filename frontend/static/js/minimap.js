@@ -7,9 +7,10 @@ const mm = document.getElementById('minimap');
 const svg = document.getElementById('minimap-svg');
 let map = null;
 let dragging = false;
+let userHidden = false;
 
 function update() {
-  if (!state.project || !state.nodes.length) { mm.classList.add('hidden'); return; }
+  if (!state.project || !state.nodes.length || userHidden) { mm.classList.add('hidden'); return; }
   mm.classList.remove('hidden');
   const cr = document.getElementById('canvas').getBoundingClientRect();
   const view = { x: -state.panX / state.zoom, y: -state.panY / state.zoom, w: cr.width / state.zoom, h: cr.height / state.zoom };
@@ -50,4 +51,16 @@ export function initMinimap() {
   window.addEventListener('mouseup', () => { dragging = false; });
   bus.addEventListener('graph', update);
   bus.addEventListener('transform', update);
+
+  const mmToggle = document.getElementById('minimap-toggle-btn');
+  function setMinimapHidden(hidden) {
+    userHidden = hidden;
+    localStorage.setItem('ws-minimap-hidden', hidden ? '1' : '0');
+    mmToggle.classList.toggle('active', !hidden);
+    mmToggle.title = hidden ? 'Show minimap' : 'Hide minimap';
+    mmToggle.setAttribute('aria-label', mmToggle.title);
+    update();
+  }
+  setMinimapHidden(localStorage.getItem('ws-minimap-hidden') === '1');
+  mmToggle.addEventListener('click', () => setMinimapHidden(!userHidden));
 }

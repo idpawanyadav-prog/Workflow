@@ -1,8 +1,8 @@
 import { api } from './api.js';
 import { state, loadProject, addNode, addConnection, commit } from './state.js';
 import { render, fitView, applyTransform } from './canvas.js';
-import { initTheme, buildPalette, initPicker, initDocPanel, wireTopbar, wireImport, wireCreateProject, renderDashboard, closeDoc, showToast, wireAiDraft } from './ui.js';
-import { wirePlayControls, exitPlay } from './play.js';
+import { initTheme, buildPalette, initPaletteToggle, initPicker, initDocPanel, wireTopbar, wireImport, wireCreateProject, renderDashboard, closeDoc, showToast, wireAiDraft } from './ui.js';
+import { wirePlayControls, exitPlay, enterPlay, clearPlayStack } from './play.js';
 import { initMinimap } from './minimap.js';
 
 const dashView = document.getElementById('view-dashboard');
@@ -10,6 +10,26 @@ const editorView = document.getElementById('view-editor');
 
 function goHome() { location.hash = ''; }
 function openProject(id, seed = false) { location.hash = `#/p/${id}${seed ? '?seed=1' : ''}`; }
+
+// Read optional parent-flow info from the hash (e.g. #/p/ID?parent=ID&parentName=Name)
+function parseParent() {
+  const q = (location.hash.split('?')[1] || '');
+  const params = new URLSearchParams(q);
+  const parent = params.get('parent');
+  if (!parent) return null;
+  return { id: parent, name: params.get('parentName') || 'Parent flow' };
+}
+
+function updateParentButton() {
+  const btn = document.getElementById('parent-btn');
+  const parent = parseParent();
+  if (parent) {
+    btn.classList.remove('hidden');
+    document.getElementById('parent-btn-label').textContent = parent.name;
+  } else {
+    btn.classList.add('hidden');
+  }
+}
 
 async function route() {
   const m = location.hash.match(/^#\/p\/([a-f0-9-]+)/i);
@@ -23,6 +43,7 @@ async function route() {
 
 function showDashboard() {
   exitPlay();
+  clearPlayStack();
   closeDoc();
   state.project = null;
   editorView.classList.add('hidden');
@@ -39,6 +60,14 @@ async function showEditor(id, seed) {
     goHome();
     return;
   }
+  const q = new URLSearchParams(location.hash.split('?')[1] || '');
+  const autoPlay = q.get('play') === '1';
+  if (autoPlay) {
+    state.play = null;
+  } else {
+    exitPlay();
+    clearPlayStack();
+  }
   dashView.classList.add('hidden');
   editorView.classList.remove('hidden');
   document.getElementById('project-title').value = project.name;
@@ -48,6 +77,8 @@ async function showEditor(id, seed) {
   applyTransform();
   render();
   fitView(false);
+  updateParentButton();
+  if (autoPlay) enterPlay(q.get('resumeNode') || undefined);
 }
 
 function seedStarter() {
@@ -59,6 +90,7 @@ function seedStarter() {
 
 initTheme();
 buildPalette();
+initPaletteToggle();
 initPicker();
 initDocPanel();
 wireTopbar(goHome);
@@ -67,6 +99,11 @@ wireCreateProject(openProject);
 wirePlayControls();
 wireAiDraft();
 initMinimap();
+
+document.getElementById('parent-btn').addEventListener('click', () => {
+  const parent = parseParent();
+  if (parent) location.hash = `#/p/${parent.id}`;
+});
 
 window.addEventListener('hashchange', route);
 route();

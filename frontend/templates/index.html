@@ -48,6 +48,7 @@
       <header id="topbar">
         <div class="tb-left">
           <button class="btn ghost icon-btn" id="back-btn" data-testid="back-to-dashboard-btn" title="Back to dashboard">&#8592;</button>
+          <button class="btn ghost parent-btn hidden" id="parent-btn" data-testid="back-to-parent-btn" title="Back to parent flow">&#8617; <span id="parent-btn-label">Parent</span></button>
           <input id="project-title" class="title-input" data-testid="project-title-input" maxlength="120" />
           <span id="save-status" class="mono-label save-status" data-testid="save-status">Saved</span>
         </div>
@@ -72,7 +73,10 @@
       </header>
       <div id="editor-body">
         <aside id="palette" data-testid="shape-palette">
-          <p class="mono-label palette-heading">SHAPES</p>
+          <div class="palette-head">
+            <p class="mono-label palette-heading">SHAPES</p>
+            <button class="btn ghost icon-btn palette-toggle" id="palette-toggle-btn" data-testid="palette-toggle-btn" title="Collapse shapes panel" aria-label="Collapse shapes panel">&#171;</button>
+          </div>
           <div id="palette-list"></div>
           <p class="palette-hint">Drag a shape onto the canvas, or click it to add. Hover a node and use its connection points to build guided flows.</p>
         </aside>
@@ -99,15 +103,20 @@
             <button id="zoom-in-btn" data-testid="zoom-in-btn" title="Zoom in">+</button>
             <button id="zoom-out-btn" data-testid="zoom-out-btn" title="Zoom out">&minus;</button>
             <button id="zoom-fit-btn" data-testid="zoom-fit-btn" title="Fit view">&#9635;</button>
+            <button id="minimap-toggle-btn" data-testid="minimap-toggle-btn" title="Hide minimap" aria-label="Hide minimap">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15"/><path d="M15 6v15"/></svg>
+            </button>
             <span id="zoom-level" class="mono-label" data-testid="zoom-level">100%</span>
           </div>
           <div id="validation-chip" class="glass hidden" data-testid="validation-chip"></div>
           <div id="play-bar" class="glass hidden" data-testid="play-overlay">
             <button class="btn ghost icon-btn" id="play-exit-btn" data-testid="play-exit-btn" title="Exit play mode">&#10005;</button>
+            <button class="btn ghost back-parent-btn hidden" id="play-back-parent-btn" data-testid="play-back-parent-btn" title="Back to parent flow">&#8617; <span id="play-back-parent-label">Parent</span></button>
             <button class="btn ghost icon-btn" id="play-restart-btn" data-testid="play-restart-btn" title="Restart">&#8634;</button>
             <button class="btn ghost icon-btn" id="play-prev-btn" data-testid="play-prev-btn" title="Previous step">&#8592;</button>
             <span id="play-step" class="mono-label" data-testid="play-step-indicator">STEP 1</span>
             <button class="btn primary" id="play-next-btn" data-testid="play-next-btn">Next &#8594;</button>
+            <button class="btn subflow-play-btn hidden" id="play-enter-subflow-btn" data-testid="play-enter-subflow-btn" title="Play inside this subflow">Play inside &#8594;</button>
             <div id="play-choices" class="hidden"></div>
           </div>
           <div id="node-picker" class="glass hidden" data-testid="node-picker"></div>
@@ -135,6 +144,26 @@
           </button>
           <label class="field-label mono-label">Type</label>
           <div id="doc-type-pill" class="type-pill mono-label" data-testid="doc-type-pill">NODE</div>
+
+          <div id="doc-subflow" class="doc-subflow hidden" data-testid="subflow-link-section">
+            <label class="field-label mono-label">Link to existing flow</label>
+            <select id="subflow-select" class="field-input" data-testid="subflow-select"></select>
+            <button class="btn primary subflow-link-btn" id="subflow-link-btn" data-testid="subflow-link-btn">Link flow</button>
+            <div id="subflow-linked" class="subflow-linked hidden" data-testid="subflow-linked-card">
+              <div class="subflow-linked-head">
+                <span class="mono-label">LINKED FLOW</span>
+                <button class="btn ghost icon-btn" id="subflow-unlink-btn" data-testid="subflow-unlink-btn" title="Unlink flow" aria-label="Unlink flow">&#10005;</button>
+              </div>
+              <h3 id="subflow-linked-name"></h3>
+              <p id="subflow-linked-desc" class="hint"></p>
+              <div class="subflow-linked-meta mono-label">
+                <span id="subflow-linked-nodes"></span>
+                <span id="subflow-linked-links"></span>
+              </div>
+              <button class="btn primary subflow-open-btn" id="subflow-open-btn" data-testid="subflow-open-btn">Open flow &#8594;</button>
+            </div>
+          </div>
+
           <label class="field-label mono-label">Attachments</label>
           <div id="doc-attachments" data-testid="attachment-list"></div>
           <button class="btn ghost" id="attach-btn" data-testid="attach-file-btn">+ Attach file or image</button>

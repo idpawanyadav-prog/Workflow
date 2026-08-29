@@ -48,7 +48,8 @@ export function buildPalette() {
     item.draggable = true;
     item.dataset.testid = `palette-item-${type}`;
     item.style.setProperty('--node-accent', def.color);
-    item.innerHTML = `<span class="node-icon">${def.icon}</span><div><span class="p-label">${def.label}</span><span class="p-desc">${def.desc}</span></div>`;
+    item.title = def.label;
+    item.innerHTML = `<span class="node-icon">${def.icon}</span><div class="p-text"><span class="p-label">${def.label}</span><span class="p-desc">${def.desc}</span></div>`;
     item.addEventListener('dragstart', (e) => e.dataTransfer.setData('nodeType', type));
     item.addEventListener('click', () => {
       const canvas = document.getElementById('canvas');
@@ -61,6 +62,23 @@ export function buildPalette() {
 }
 
 bus.addEventListener('palettedrop', (e) => addNode(e.detail.type, e.detail.position));
+
+// ---------- palette collapse / expand ----------
+export function initPaletteToggle() {
+  const palette = document.getElementById('palette');
+  const btn = document.getElementById('palette-toggle-btn');
+
+  function setCollapsed(collapsed) {
+    palette.classList.toggle('collapsed', collapsed);
+    localStorage.setItem('ws-palette-collapsed', collapsed ? '1' : '0');
+    btn.textContent = collapsed ? '\u00bb' : '\u00ab';
+    btn.title = collapsed ? 'Expand shapes panel' : 'Collapse shapes panel';
+    btn.setAttribute('aria-label', btn.title);
+  }
+
+  if (localStorage.getItem('ws-palette-collapsed') === '1') setCollapsed(true);
+  btn.addEventListener('click', () => setCollapsed(!palette.classList.contains('collapsed')));
+}
 
 // ---------- node picker (guided builder) ----------
 const picker = document.getElementById('node-picker');
@@ -149,6 +167,9 @@ export function initDocPanel() {
   document.getElementById('doc-editor-modal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeEditorModal(); });
   document.getElementById('attach-btn').addEventListener('click', () => document.getElementById('attach-input').click());
   document.getElementById('attach-input').addEventListener('change', onAttachFile);
+  document.getElementById('subflow-link-btn').addEventListener('click', linkSubflow);
+  document.getElementById('subflow-unlink-btn').addEventListener('click', unlinkSubflow);
+  document.getElementById('subflow-open-btn').addEventListener('click', openLinkedFlow);
 }
 
 async function onAttachFile() {
@@ -226,7 +247,7 @@ function ensureQuill() {
   quill.on('text-change', (d, o, source) => { if (source === 'user') docDirty = true; });
 }
 
-function openDoc(nodeId) {
+async function openDoc(nodeId) {
   if (docNodeId && docNodeId !== nodeId) saveDoc();
   const n = getNode(nodeId);
   if (!n) return;
@@ -239,6 +260,8 @@ function openDoc(nodeId) {
   document.getElementById('doc-short').value = n.shortDescription || '';
   quill.root.innerHTML = n.detailedDescription || '';
   renderAttachments(n);
+  if (n.type === 'subflow' && !projectsCache.length) await loadProjectsCache();
+  renderSubflowSection(n);
   docPanel.classList.remove('hidden');
 }
 
@@ -252,6 +275,71 @@ function saveDoc() {
     detailedDescription: quill.root.innerHTML === '<p><br></p>' ? '' : quill.root.innerHTML,
   });
   docDirty = false;
+}
+
+// ---------- subflow linking ----------
+let projectsCache = [];
+
+async function loadProjectsCache() {
+  try {
+    projectsCache = await api.listProjects();
+  } catch (e) {
+    projectsCache = [];
+  }
+}
+
+function renderSubflowSection(n) {
+  const section = document.getElementById('doc-subflow');
+  const isSubflow = n.type === 'subflow';
+  section.classList.toggle('hidden', !isSubflow);
+  if (!isSubflow) return;
+
+  const sub = n.subflow && n.subflow.projectId ? n.subflow : null;
+  const select = document.getElementById('subflow-select');
+  const others = projectsCache.filter((p) => p.id !== state.project.id);
+  select.innerHTML = '<option value="">&mdash; Select a flow &mdash;</option>' + others
+    .map((p) => `<option value="${p.id}" ${sub && p.id === sub.projectId ? 'selected' : ''}>${escapeHtml(p.name)}</option>`)
+    .join('');
+
+  const card = document.getElementById('subflow-linked');
+  if (sub) {
+    card.classList.remove('hidden');
+    document.getElementById('subflow-linked-name').textContent = sub.name || '';
+    document.getElementById('subflow-linked-desc').textContent = sub.description || '';
+    document.getElementById('subflow-linked-nodes').textContent = `${sub.nodeCount ?? 0} NODES`;
+    document.getElementById('subflow-linked-links').textContent = `${sub.connectionCount ?? 0} LINKS`;
+  } else {
+    card.classList.add('hidden');
+  }
+}
+
+function linkSubflow() {
+  if (!docNodeId) return;
+  const n = getNode(docNodeId);
+  if (!n || n.type !== 'subflow') return;
+  const pid = document.getElementById('subflow-select').value;
+  if (!pid) { showToast('Select a flow to link', 'error'); return; }
+  const p = projectsCache.find((x) => x.id === pid);
+  if (!p) return;
+  updateNode(docNodeId, {
+    subflow: { projectId: p.id, name: p.name, description: p.description || '', nodeCount: p.nodeCount, connectionCount: p.connectionCount },
+  });
+  renderSubflowSection(getNode(docNodeId));
+  showToast(`Linked to \u201c${p.name}\u201d`);
+}
+
+function unlinkSubflow() {
+  if (!docNodeId) return;
+  updateNode(docNodeId, { subflow: null });
+  renderSubflowSection(getNode(docNodeId));
+  showToast('Flow unlinked');
+}
+
+function openLinkedFlow() {
+  const n = docNodeId && getNode(docNodeId);
+  if (!n || !n.subflow || !n.subflow.projectId || !state.project) return;
+  const parentName = state.project.name || 'Parent flow';
+  location.hash = `#/p/${n.subflow.projectId}?parent=${state.project.id}&parentName=${encodeURIComponent(parentName)}`;
 }
 
 export function closeDoc() {
