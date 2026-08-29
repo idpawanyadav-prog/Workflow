@@ -63,6 +63,7 @@
             </div>
           </div>
           <button class="btn ghost" id="export-btn" data-testid="export-btn">Export</button>
+          <button class="btn ghost" id="ai-draft-btn" data-testid="ai-draft-btn">&#10022; AI Draft</button>
         </div>
         <div class="tb-right">
           <button class="btn ghost icon-btn" id="theme-toggle" data-testid="theme-toggle-btn" title="Toggle theme"></button>
@@ -91,6 +92,9 @@
             </svg>
             <div id="node-layer"></div>
           </div>
+          <div id="minimap" class="glass hidden" data-testid="minimap">
+            <svg id="minimap-svg" width="192" height="128"></svg>
+          </div>
           <div id="zoom-controls" class="glass" data-testid="zoom-controls">
             <button id="zoom-in-btn" data-testid="zoom-in-btn" title="Zoom in">+</button>
             <button id="zoom-out-btn" data-testid="zoom-out-btn" title="Zoom out">&minus;</button>
@@ -110,21 +114,46 @@
         </main>
         <aside id="doc-panel" class="hidden" data-testid="doc-panel">
           <div class="doc-head">
-            <p class="mono-label" id="doc-node-type">NODE</p>
             <div>
+              <p class="mono-label doc-kicker">PROPERTIES</p>
+              <h2 id="doc-heading" data-testid="doc-panel-heading">Node</h2>
+            </div>
+            <div class="doc-head-actions">
               <button class="btn danger-ghost" id="doc-delete-btn" data-testid="node-delete-btn">Delete</button>
               <button class="btn ghost icon-btn" id="doc-close-btn" data-testid="doc-close-btn">&#10005;</button>
             </div>
           </div>
-          <label class="field-label">Title</label>
+          <label class="field-label mono-label">Title</label>
           <input id="doc-title" class="field-input" data-testid="doc-title-input" maxlength="80" />
-          <label class="field-label">Short description <span class="hint">(shown on hover)</span></label>
-          <textarea id="doc-short" class="field-input" data-testid="doc-short-input" rows="2" maxlength="240"></textarea>
-          <label class="field-label">Detailed documentation</label>
-          <div id="doc-editor-wrap"><div id="doc-editor" data-testid="doc-rich-editor"></div></div>
+          <label class="field-label mono-label">Short description</label>
+          <textarea id="doc-short" class="field-input" data-testid="doc-short-input" rows="4" maxlength="240"></textarea>
+          <p class="field-hint">Shown on hover</p>
+          <label class="field-label mono-label">Detailed documentation</label>
+          <button class="edit-docs-btn" id="edit-docs-btn" data-testid="edit-docs-btn">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
+            <span>Edit rich documentation</span>
+          </button>
+          <label class="field-label mono-label">Type</label>
+          <div id="doc-type-pill" class="type-pill mono-label" data-testid="doc-type-pill">NODE</div>
+          <label class="field-label mono-label">Attachments</label>
+          <div id="doc-attachments" data-testid="attachment-list"></div>
+          <button class="btn ghost" id="attach-btn" data-testid="attach-file-btn">+ Attach file or image</button>
+          <input type="file" id="attach-input" hidden />
         </aside>
       </div>
     </section>
+  </div>
+  <div id="doc-editor-modal" class="modal-backdrop hidden" data-testid="doc-editor-modal">
+    <div class="modal doc-editor-modal">
+      <div class="doc-modal-head">
+        <div>
+          <p class="mono-label doc-kicker">DETAILED DOCUMENTATION</p>
+          <h2 id="doc-editor-heading">Documentation</h2>
+        </div>
+        <button class="btn primary" id="doc-editor-done" data-testid="doc-editor-done-btn">Done</button>
+      </div>
+      <div id="doc-editor-wrap"><div id="doc-editor" data-testid="doc-rich-editor"></div></div>
+    </div>
   </div>
   <div id="modal-root"></div>
   <div id="toast-root"></div>

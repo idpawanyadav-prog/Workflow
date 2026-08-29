@@ -1,8 +1,9 @@
 import { api } from './api.js';
 import { state, loadProject, addNode, addConnection, commit } from './state.js';
 import { render, fitView, applyTransform } from './canvas.js';
-import { initTheme, buildPalette, initPicker, initDocPanel, wireTopbar, wireImport, wireCreateProject, renderDashboard, closeDoc, showToast } from './ui.js';
+import { initTheme, buildPalette, initPicker, initDocPanel, wireTopbar, wireImport, wireCreateProject, renderDashboard, closeDoc, showToast, wireAiDraft } from './ui.js';
 import { wirePlayControls, exitPlay } from './play.js';
+import { initMinimap } from './minimap.js';
 
 const dashView = document.getElementById('view-dashboard');
 const editorView = document.getElementById('view-editor');
@@ -64,6 +65,8 @@ wireTopbar(goHome);
 wireImport(() => renderDashboard(openProject));
 wireCreateProject(openProject);
 wirePlayControls();
+wireAiDraft();
+initMinimap();
 
 window.addEventListener('hashchange', route);
 route();

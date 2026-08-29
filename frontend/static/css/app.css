@@ -378,9 +378,6 @@ g.edge.play-last .arrow-head { fill: var(--play); }
   overflow-y: auto;
   z-index: 10;
 }
-.doc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.doc-head .mono-label { color: var(--text-2); }
-.doc-head > div { display: flex; gap: 6px; }
 .field-label { font-size: 12px; font-weight: 600; margin: 14px 0 6px; display: block; }
 .field-label .hint, .hint { font-weight: 400; color: var(--text-2); }
 .field-input {
@@ -474,3 +471,72 @@ g.edge.play-last .arrow-head { fill: var(--play); }
 .dropdown-menu button:hover { background: var(--text); color: var(--bg); }
 
 ::selection { background: var(--primary); color: #fff; }
+
+/* ---------- doc panel (properties) ---------- */
+.doc-kicker { color: var(--text-2); margin-bottom: 4px; }
+#doc-heading { font-size: 22px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; }
+.doc-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
+.doc-head-actions { display: flex; gap: 6px; flex: none; }
+#doc-panel .field-label { color: var(--text); margin: 18px 0 8px; }
+.field-hint { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+.edit-docs-btn {
+  display: flex; align-items: center; gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13.5px; font-weight: 600;
+  box-shadow: var(--shadow-hard);
+  transition: transform 150ms ease-out, box-shadow 150ms ease-out;
+}
+.edit-docs-btn:hover { transform: translate(-1px, -1px); box-shadow: var(--shadow-hard-lg); }
+.edit-docs-btn svg { width: 18px; height: 18px; flex: none; }
+.type-pill {
+  display: inline-block;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 7px 16px;
+  color: var(--text);
+  background: var(--surface);
+}
+.doc-editor-modal {
+  width: 760px; max-width: calc(100vw - 48px);
+  height: 72vh;
+  display: flex; flex-direction: column;
+}
+.doc-modal-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+.doc-modal-head h2 { font-size: 20px; }
+
+/* ---------- minimap ---------- */
+#minimap { bottom: 74px; right: 20px; padding: 6px; cursor: crosshair; }
+#minimap svg { display: block; }
+.mm-view { fill: rgba(67, 56, 202, 0.12); stroke: var(--primary); stroke-width: 1.5; }
+:root[data-theme="dark"] .mm-view { fill: rgba(99, 102, 241, 0.16); }
+
+/* ---------- attachments ---------- */
+#doc-attachments { margin-bottom: 8px; }
+.attach-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 10px; margin-bottom: 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  background: var(--bg);
+}
+.attach-thumb { width: 36px; height: 36px; object-fit: cover; border-radius: 4px; border: 1px solid var(--border-subtle); flex: none; }
+.attach-icon { color: var(--text-2); border: 1px solid var(--border-subtle); border-radius: 4px; padding: 9px 5px; flex: none; }
+.attach-name { flex: 1; min-width: 0; font-size: 12.5px; font-weight: 500; color: var(--text); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.attach-name:hover { text-decoration: underline; }
+.attach-size { flex: none; font-size: 11px; }
+.attach-remove {
+  flex: none; border: none; background: transparent; color: var(--text-2);
+  width: 24px; height: 24px; border-radius: 4px; font-size: 11px;
+  transition: background-color 150ms ease-out, color 150ms ease-out;
+}
+.attach-remove:hover { background: var(--play); color: #fff; }
+.attach-empty { font-size: 12px; margin: 2px 0 6px; }
+
+/* ---------- AI draft ---------- */
+.ai-hint { color: var(--text-2); font-size: 13px; line-height: 1.55; margin: 6px 0 4px; }
+.ai-textarea { min-height: 120px; }

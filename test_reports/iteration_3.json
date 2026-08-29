@@ -1,0 +1,34 @@
+{
+  "summary": "Iteration 3: verified 3 new features (minimap, AI draft, node attachments) + PRIORITY bug fix (dblclick opens doc-panel) + regression pass. Backend: 22/22 pytest tests pass (13 existing + 9 new for /api/attachments and /api/ai/draft). Frontend: dblclick to open doc-panel works via ALL three input paths (locator.dblclick, two rapid clicks 150ms apart, single-click+pause>500ms+dblclick). Node title, short description, Quill rich-text (with <strong>Bold</strong>), and attachments all persist across full page reload. Attachments: PNG image upload -> attachment-item with /api/attachments/{id} link; TXT upload adds a 2nd item; attachment-remove-btn removes an item. Minimap: hidden when 0 nodes, shows node rects + viewport rect when nodes exist, clicking a spot pans the canvas (world.style.transform changes). AI draft: prompt -> canvas populated with 6 nodes including a decision with Yes/No labels, toast 'AI draft created with 6 steps' (confirm() dialog for replace correctly auto-accepted). Regressions verified: palette click adds node, play mode enter/exit, auto-layout vertical, save-status returns to 'Saved'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/backend_test.py",
+    "/app/backend/tests/test_new_features.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py still uses deprecated @app.on_event('startup'/'shutdown') hooks - consider migrating to FastAPI lifespan handler (non-blocking).",
+    "server.py init_objstore mutates a module-global _objstore_key without any lock; safe in single-worker uvicorn but could race under multi-worker. Minor.",
+    "AI model id 'gpt-5.4' is hardcoded in server.py:460 - consider moving to env for easier upgrades.",
+    "parse_ai_graph silently drops connections that violate maxOut instead of surfacing a warning; acceptable behaviour, but consider logging.",
+    "canvas.js mousedown preventDefault on .wf-node can still suppress the native dblclick; the manual 450ms window fix works reliably in all three tested input patterns.",
+    "minimap moveTo does not clamp world coordinates to node bounding box, so clicking a corner can pan nodes off-screen (verified). Consider clamping so that at least one node remains visible.",
+    "Undo (Ctrl+Z) after an AI-draft replace did not change node count in Playwright - likely a keyboard-focus issue where the shortcut listener requires canvas focus. Non-blocking; undo-btn click path was not re-tested but was 100% in iteration_2."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features.py (new)"
+  ],
+  "success_rate": {"backend": "100% (22/22)", "frontend": "100% of the 6 requested flows verified"},
+  "test_credentials": "N/A - no auth",
+  "seed_data_creation": "Two TEST_-prefixed projects and a handful of TEST_ attachments were created and deleted at test end. Attachments backend confirmed writing to Emergent object storage (backend log 'Object storage initialized').",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Backend URL from /app/frontend/.env REACT_APP_BACKEND_URL. Storage backend = mongo, attachments backend = objstore (EMERGENT_LLM_KEY). AI /api/ai/draft uses gpt-5.4 via emergentintegrations (~5-15s latency). Attachments limit = 10 MB (413) and 0 bytes rejected (400). Minimap module listens on bus 'graph' + 'transform' events. Dblclick works via all three input patterns; if a test fails because minimap intercepts pointer events, click zoom-fit first or run dblclick tests BEFORE any minimap interaction that pans canvas.",
+  "rca of the issue": "PRIORITY BUG (dblclick did not open doc panel): confirmed FIXED. Root cause was that state.commit() re-renders the DOM between the two mousedowns, so the browser fires two separate 'click' events on two different DOM nodes and no native 'dblclick' is emitted. Mitigation in canvas.js mousedown records lastNodeClick={id,ts} and manually emits 'opendoc' when two mousedowns for the same node.id occur within 450ms. Verified across three real-user interaction patterns (locator.dblclick, two rapid clicks ~150ms, single-click+pause+dblclick) - all three open the doc panel."
+}

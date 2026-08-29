@@ -18,6 +18,7 @@ export function applyTransform(animated = false) {
   canvas.style.backgroundPosition = `${state.panX}px ${state.panY}px`;
   const zl = document.getElementById('zoom-level');
   if (zl) zl.textContent = `${Math.round(state.zoom * 100)}%`;
+  emit('transform');
   if (animated) setTimeout(() => world.classList.remove('animated'), 350);
 }
 
@@ -219,10 +220,11 @@ function escapeHtml(s) {
 
 // ---------- interactions ----------
 let drag = null; // {kind:'pan'|'node'|'port', ...}
+let lastNodeClick = { id: null, t: 0 };
 
 canvas.addEventListener('mousedown', (e) => {
   if (state.play) return;
-  if (e.target.closest('#zoom-controls, #node-picker, #validation-chip, #play-bar')) return;
+  if (e.target.closest('#zoom-controls, #node-picker, #validation-chip, #play-bar, #minimap')) return;
   const port = e.target.closest('.port');
   const nodeEl = e.target.closest('.wf-node');
   if (port && nodeEl) {
@@ -231,6 +233,16 @@ canvas.addEventListener('mousedown', (e) => {
     return;
   }
   if (nodeEl) {
+    // manual double-click detection: the canvas re-renders between clicks,
+    // so the browser's native dblclick is unreliable here
+    const now = Date.now();
+    if (lastNodeClick.id === nodeEl.dataset.id && now - lastNodeClick.t < 450) {
+      lastNodeClick = { id: null, t: 0 };
+      drag = null;
+      emit('opendoc', { nodeId: nodeEl.dataset.id });
+      return;
+    }
+    lastNodeClick = { id: nodeEl.dataset.id, t: now };
     const n = getNode(nodeEl.dataset.id);
     drag = { kind: 'node', id: n.id, el: nodeEl, startPos: { ...n.position }, sx: e.clientX, sy: e.clientY, moved: false };
     e.preventDefault();
@@ -275,7 +287,7 @@ window.addEventListener('mouseup', (e) => {
   nodeLayer.querySelectorAll('.drop-target').forEach((el) => el.classList.remove('drop-target'));
   if (d.kind === 'pan' && !d.moved) { setSelection(null, null); render(); }
   if (d.kind === 'node') {
-    if (d.moved) commit();
+    if (d.moved) { lastNodeClick = { id: null, t: 0 }; commit(); }
     else { setSelection(d.id, null); render(); }
   }
   if (d.kind === 'port') {
@@ -293,8 +305,9 @@ window.addEventListener('mouseup', (e) => {
 
 canvas.addEventListener('dblclick', (e) => {
   if (state.play) return;
+  // backup path for the manual detection in mousedown
   const nodeEl = e.target.closest('.wf-node');
-  if (nodeEl) emit('opendoc', { nodeId: nodeEl.dataset.id });
+  if (nodeEl) e.preventDefault();
 });
 
 canvas.addEventListener('wheel', (e) => {

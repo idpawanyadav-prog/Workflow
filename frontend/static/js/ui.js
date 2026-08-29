@@ -1,6 +1,6 @@
 import { api } from './api.js';
 import { NODE_TYPES, DIRV, OPPOSITE, nodeSize } from './nodes.js';
-import { state, bus, emit, loadProject, getNode, addNode, addConnection, updateNode, deleteNode, undo, redo } from './state.js';
+import { state, bus, emit, loadProject, getNode, addNode, addConnection, updateNode, deleteNode, undo, redo, commit } from './state.js';
 import { render, fitView, setZoom, screenToWorld, onPickerRequest, applyTransform } from './canvas.js';
 import { autoLayout } from './layout.js';
 
@@ -112,9 +112,7 @@ function pickType(type) {
   const node = addNode(type, pos, { silent: true });
   if (!node) { render(); return; }
   addConnection(ctx.sourceId, ctx.sourceDir, node.id, OPPOSITE[ctx.sourceDir], { silent: true });
-  emit('graph');
-  // single commit for node+connection
-  import('./state.js').then((m) => m.commit());
+  commit();
 }
 
 // ---------- documentation panel (Quill) ----------
@@ -134,6 +132,80 @@ export function initDocPanel() {
     deleteNode(id);
   });
   ['doc-title', 'doc-short'].forEach((id) => document.getElementById(id).addEventListener('input', () => { docDirty = true; }));
+  document.getElementById('doc-title').addEventListener('input', (e) => {
+    document.getElementById('doc-heading').textContent = e.target.value.trim() || 'Node';
+  });
+  document.getElementById('edit-docs-btn').addEventListener('click', () => {
+    if (!docNodeId) return;
+    document.getElementById('doc-editor-heading').textContent = document.getElementById('doc-title').value.trim() || 'Documentation';
+    document.getElementById('doc-editor-modal').classList.remove('hidden');
+    setTimeout(() => quill && quill.focus(), 50);
+  });
+  const closeEditorModal = () => {
+    document.getElementById('doc-editor-modal').classList.add('hidden');
+    saveDoc();
+  };
+  document.getElementById('doc-editor-done').addEventListener('click', closeEditorModal);
+  document.getElementById('doc-editor-modal').addEventListener('click', (e) => { if (e.target === e.currentTarget) closeEditorModal(); });
+  document.getElementById('attach-btn').addEventListener('click', () => document.getElementById('attach-input').click());
+  document.getElementById('attach-input').addEventListener('change', onAttachFile);
+}
+
+async function onAttachFile() {
+  const input = document.getElementById('attach-input');
+  const file = input.files[0];
+  input.value = '';
+  if (!file || !docNodeId) return;
+  if (file.size > 10 * 1024 * 1024) { showToast('File too large (max 10 MB)', 'error'); return; }
+  const btn = document.getElementById('attach-btn');
+  btn.disabled = true;
+  btn.textContent = 'Uploading\u2026';
+  try {
+    const fd = new FormData();
+    fd.append('file', file);
+    const res = await fetch('/api/attachments', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Upload failed (${res.status})`);
+    const meta = await res.json();
+    const n = getNode(docNodeId);
+    updateNode(docNodeId, { attachments: [...(n.attachments || []), meta] });
+    renderAttachments(getNode(docNodeId));
+    showToast('Attachment uploaded');
+  } catch (e) {
+    showToast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '+ Attach file or image';
+  }
+}
+
+function fmtSize(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function renderAttachments(n) {
+  const wrap = document.getElementById('doc-attachments');
+  const items = n.attachments || [];
+  wrap.innerHTML = items.length ? '' : '<p class="attach-empty hint">No attachments yet.</p>';
+  items.forEach((a) => {
+    const item = document.createElement('div');
+    item.className = 'attach-item';
+    item.dataset.testid = 'attachment-item';
+    const isImg = (a.contentType || '').startsWith('image/');
+    item.innerHTML = `${isImg ? `<img class="attach-thumb" src="${a.url}" alt="" loading="lazy">` : '<span class="attach-icon mono-label">FILE</span>'}
+      <a class="attach-name" href="${a.url}" target="_blank" rel="noopener" data-testid="attachment-link">${escapeHtml(a.name)}</a>
+      <span class="attach-size hint">${fmtSize(a.size)}</span>
+      <button class="attach-remove" data-testid="attachment-remove-btn" title="Remove attachment">&#10005;</button>`;
+    item.querySelector('.attach-remove').addEventListener('click', async () => {
+      fetch(`/api/attachments/${a.id}`, { method: 'DELETE' }).catch(() => {});
+      const node = getNode(docNodeId);
+      updateNode(docNodeId, { attachments: (node.attachments || []).filter((x) => x.id !== a.id) });
+      renderAttachments(getNode(docNodeId));
+      showToast('Attachment removed');
+    });
+    wrap.appendChild(item);
+  });
 }
 
 function ensureQuill() {
@@ -161,10 +233,12 @@ function openDoc(nodeId) {
   ensureQuill();
   docNodeId = nodeId;
   docDirty = false;
-  document.getElementById('doc-node-type').textContent = NODE_TYPES[n.type].label.toUpperCase() + ' NODE';
+  document.getElementById('doc-heading').textContent = n.title || 'Node';
+  document.getElementById('doc-type-pill').textContent = NODE_TYPES[n.type].label.toUpperCase();
   document.getElementById('doc-title').value = n.title;
   document.getElementById('doc-short').value = n.shortDescription || '';
   quill.root.innerHTML = n.detailedDescription || '';
+  renderAttachments(n);
   docPanel.classList.remove('hidden');
 }
 
@@ -177,12 +251,14 @@ function saveDoc() {
     shortDescription: document.getElementById('doc-short').value.trim(),
     detailedDescription: quill.root.innerHTML === '<p><br></p>' ? '' : quill.root.innerHTML,
   });
+  docDirty = false;
 }
 
 export function closeDoc() {
   saveDoc();
   docNodeId = null;
   docPanel.classList.add('hidden');
+  document.getElementById('doc-editor-modal').classList.add('hidden');
 }
 
 // ---------- topbar ----------
@@ -230,6 +306,64 @@ export function wireTopbar(goHome) {
     el.textContent = state.saveStatus;
     el.classList.toggle('dirty', state.saveStatus !== 'Saved');
   });
+}
+
+// ---------- AI workflow draft ----------
+export function wireAiDraft() {
+  document.getElementById('ai-draft-btn').addEventListener('click', openAiModal);
+}
+
+function openAiModal() {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = `
+    <div class="modal-backdrop" data-testid="ai-draft-modal">
+      <div class="modal">
+        <h2>AI Workflow Draft</h2>
+        <p class="ai-hint">Describe your process in plain text and the AI will lay out a ready-made workflow you can refine on the canvas.</p>
+        <label class="field-label">Process description</label>
+        <textarea class="field-input ai-textarea" id="ai-prompt" data-testid="ai-prompt-input" maxlength="3000"
+          placeholder="e.g. A customer places an order. Check stock in the database; if available, charge the card via the payment API and email a confirmation, otherwise notify the customer and end."></textarea>
+        <div class="modal-actions">
+          <button class="btn ghost" id="ai-cancel" data-testid="ai-cancel-btn">Cancel</button>
+          <button class="btn primary" id="ai-generate" data-testid="ai-generate-btn">Generate</button>
+        </div>
+      </div>
+    </div>`;
+  const close = () => { root.innerHTML = ''; };
+  root.querySelector('#ai-cancel').addEventListener('click', close);
+  root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target === e.currentTarget) close(); });
+  root.querySelector('#ai-generate').addEventListener('click', async () => {
+    const prompt = root.querySelector('#ai-prompt').value.trim();
+    if (prompt.length < 5) { showToast('Describe your process in a bit more detail', 'error'); return; }
+    const btn = root.querySelector('#ai-generate');
+    btn.disabled = true;
+    btn.textContent = 'Generating\u2026';
+    try {
+      const res = await fetch('/api/ai/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || `Generation failed (${res.status})`);
+      const graph = await res.json();
+      if (state.nodes.length && !confirm('Replace the current canvas with the AI draft?')) {
+        btn.disabled = false;
+        btn.textContent = 'Generate';
+        return;
+      }
+      state.nodes = graph.nodes;
+      state.connections = graph.connections;
+      commit();
+      close();
+      await autoLayout('DOWN');
+      showToast(`AI draft created with ${graph.nodes.length} steps`);
+    } catch (e) {
+      showToast(e.message, 'error');
+      btn.disabled = false;
+      btn.textContent = 'Generate';
+    }
+  });
+  setTimeout(() => root.querySelector('#ai-prompt').focus(), 50);
 }
 
 // ---------- export / import ----------
