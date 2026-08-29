@@ -170,6 +170,9 @@ export function initDocPanel() {
   document.getElementById('subflow-link-btn').addEventListener('click', linkSubflow);
   document.getElementById('subflow-unlink-btn').addEventListener('click', unlinkSubflow);
   document.getElementById('subflow-open-btn').addEventListener('click', openLinkedFlow);
+  document.getElementById('link-add-btn').addEventListener('click', showLinkForm);
+  document.getElementById('link-cancel-btn').addEventListener('click', hideLinkForm);
+  document.getElementById('link-save-btn').addEventListener('click', addLink);
 }
 
 async function onAttachFile() {
@@ -260,6 +263,8 @@ async function openDoc(nodeId) {
   document.getElementById('doc-short').value = n.shortDescription || '';
   quill.root.innerHTML = n.detailedDescription || '';
   renderAttachments(n);
+  renderLinks(n);
+  hideLinkForm();
   if (n.type === 'subflow' && !projectsCache.length) await loadProjectsCache();
   renderSubflowSection(n);
   docPanel.classList.remove('hidden');
@@ -340,6 +345,104 @@ function openLinkedFlow() {
   if (!n || !n.subflow || !n.subflow.projectId || !state.project) return;
   const parentName = state.project.name || 'Parent flow';
   location.hash = `#/p/${n.subflow.projectId}?parent=${state.project.id}&parentName=${encodeURIComponent(parentName)}`;
+}
+
+// ---------- node links (external URLs with grouping) ----------
+const collapsedLinkGroups = new Set();
+
+function renderLinks(n) {
+  const wrap = document.getElementById('doc-links');
+  const links = n.links || [];
+  if (!links.length) {
+    wrap.innerHTML = '<p class="attach-empty hint">No links yet.</p>';
+    return;
+  }
+  const groups = {};
+  links.forEach((l) => {
+    const g = (l.group || '').trim() || 'General';
+    (groups[g] = groups[g] || []).push(l);
+  });
+  wrap.innerHTML = '';
+  Object.entries(groups).forEach(([group, items]) => {
+    const gEl = document.createElement('div');
+    gEl.className = 'link-group';
+    const key = `${docNodeId}::${group}`;
+    const collapsed = collapsedLinkGroups.has(key);
+    gEl.classList.toggle('collapsed', collapsed);
+
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'link-group-name';
+    head.dataset.testid = 'link-group-toggle';
+    head.setAttribute('aria-expanded', String(!collapsed));
+    head.innerHTML = `<span class="link-group-chev">${collapsed ? '\u25b8' : '\u25be'}</span>`
+      + `<span class="link-group-label">${escapeHtml(group)}</span>`
+      + `<span class="link-group-count">${items.length}</span>`;
+    head.addEventListener('click', () => {
+      if (collapsedLinkGroups.has(key)) collapsedLinkGroups.delete(key);
+      else collapsedLinkGroups.add(key);
+      renderLinks(getNode(docNodeId));
+    });
+    gEl.appendChild(head);
+
+    const body = document.createElement('div');
+    body.className = 'link-group-body';
+    items.forEach((l) => {
+      const item = document.createElement('div');
+      item.className = 'link-item';
+      item.dataset.testid = 'node-link-item';
+      const label = l.label || l.url;
+      item.innerHTML = `<a class="link-url" href="${escapeHtml(l.url)}" target="_blank" rel="noopener" data-testid="node-link-anchor">${escapeHtml(label)}</a>`
+        + `<button class="link-remove" data-testid="node-link-remove-btn" title="Remove link" aria-label="Remove link">&#10005;</button>`;
+      item.querySelector('.link-remove').addEventListener('click', () => removeLink(l.id));
+      body.appendChild(item);
+    });
+    gEl.appendChild(body);
+    wrap.appendChild(gEl);
+  });
+}
+
+function showLinkForm() {
+  const form = document.getElementById('link-form');
+  document.getElementById('link-url').value = '';
+  document.getElementById('link-label').value = '';
+  document.getElementById('link-group').value = '';
+  populateLinkGroups();
+  form.classList.remove('hidden');
+  document.getElementById('link-url').focus();
+}
+
+function hideLinkForm() {
+  document.getElementById('link-form').classList.add('hidden');
+}
+
+function populateLinkGroups() {
+  const n = docNodeId && getNode(docNodeId);
+  const dl = document.getElementById('link-group-list');
+  const groups = new Set();
+  (n && n.links || []).forEach((l) => { if (l.group) groups.add(l.group.trim()); });
+  dl.innerHTML = [...groups].map((g) => `<option value="${escapeHtml(g)}"></option>`).join('');
+}
+
+function addLink() {
+  if (!docNodeId) return;
+  const url = document.getElementById('link-url').value.trim();
+  const label = document.getElementById('link-label').value.trim();
+  const group = document.getElementById('link-group').value.trim();
+  if (!url) { showToast('Enter a URL', 'error'); return; }
+  const fullUrl = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+  const n = getNode(docNodeId);
+  updateNode(docNodeId, { links: [...(n.links || []), { id: crypto.randomUUID(), url: fullUrl, label, group }] });
+  renderLinks(getNode(docNodeId));
+  hideLinkForm();
+  showToast('Link added');
+}
+
+function removeLink(id) {
+  if (!docNodeId) return;
+  const n = getNode(docNodeId);
+  updateNode(docNodeId, { links: (n.links || []).filter((l) => l.id !== id) });
+  renderLinks(getNode(docNodeId));
 }
 
 export function closeDoc() {

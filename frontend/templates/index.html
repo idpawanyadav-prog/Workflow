@@ -137,6 +137,21 @@
           <label class="field-label mono-label">Short description</label>
           <textarea id="doc-short" class="field-input" data-testid="doc-short-input" rows="4" maxlength="240"></textarea>
           <p class="field-hint">Shown on hover</p>
+
+          <label class="field-label mono-label">Links</label>
+          <div id="doc-links" class="doc-links" data-testid="node-links-list"></div>
+          <button class="btn ghost link-add-btn" id="link-add-btn" data-testid="add-link-btn">+ Add link</button>
+          <div id="link-form" class="link-form hidden" data-testid="link-form">
+            <input id="link-url" class="field-input" placeholder="https://example.com" autocomplete="off" />
+            <input id="link-label" class="field-input" placeholder="Label (optional)" maxlength="80" />
+            <input id="link-group" class="field-input" placeholder="Group (e.g. Docs)" maxlength="40" list="link-group-list" />
+            <datalist id="link-group-list"></datalist>
+            <div class="link-form-actions">
+              <button class="btn primary" id="link-save-btn" data-testid="link-save-btn">Add</button>
+              <button class="btn ghost" id="link-cancel-btn" data-testid="link-cancel-btn">Cancel</button>
+            </div>
+          </div>
+
           <label class="field-label mono-label">Detailed documentation</label>
           <button class="edit-docs-btn" id="edit-docs-btn" data-testid="edit-docs-btn">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/></svg>
