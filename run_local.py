@@ -26,7 +26,7 @@ templates = Jinja2Templates(directory=ROOT / "frontend" / "templates")
 
 @app.get("/{path:path}", include_in_schema=False)
 async def index(request: Request, path: str):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request, "index.html")
 
 
 if __name__ == "__main__":

@@ -89,3 +89,6 @@ credentials.json
 frontend/node_modules/.cache/default-development/3.pack
 workflow_studio.db
 __pycache__/
+
+# Bundled third-party dependencies (installed by install_lib.bat)
+libs/

@@ -1,0 +1,7 @@
+# Workflow Studio - local runtime dependencies (SQLite mode)
+fastapi==0.141.1
+uvicorn==0.52.4
+jinja2==3.1.2
+python-dotenv==0.19.2
+requests==2.31.0
+python-multipart==0.0.32
