@@ -1,0 +1,2 @@
+/* App-level overrides intentionally minimal. Global styles live in index.css. */
+.App { height: 100vh; }

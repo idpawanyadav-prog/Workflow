@@ -1,0 +1,122 @@
+{
+  "theme_and_concept": {
+    "name": "Modern Architectural / Crisp Neumorphism",
+    "description": "A distinctive, highly tactile visual language that rejects both the standard 'light web tool' (draw.io) and the 'dark developer IDE' aesthetics. It fuses warm, architectural paper-like backgrounds with sharp, high-contrast structural borders, and vibrant kinetic accents for interaction (like Play Mode). The interface feels like a high-end blueprint tool.",
+    "archetype": "Mix of PASTEL & SOFT base (for calm focus) and SWISS HIGH-CONTRAST (for structural authority).",
+    "mode": "Light-first with a true Obsidian Dark mode toggle."
+  },
+  "colors": {
+    "light": {
+      "background": "#F7F7F5",
+      "surface": "#FFFFFF",
+      "surface_raised": "#F0F0EE",
+      "border": "#1A1A1A",
+      "border_subtle": "#E5E5E5",
+      "text_primary": "#1A1A1A",
+      "text_secondary": "#525252",
+      "primary": "#4338CA",
+      "primary_hover": "#3730A3",
+      "accent_play": "#FF3B30",
+      "accent_success": "#10B981",
+      "accent_warning": "#F59E0B"
+    },
+    "dark": {
+      "background": "#0A0A0A",
+      "surface": "#141414",
+      "surface_raised": "#1F1F1F",
+      "border": "#333333",
+      "border_subtle": "#262626",
+      "text_primary": "#F5F5F5",
+      "text_secondary": "#A3A3A3",
+      "primary": "#6366F1",
+      "primary_hover": "#4F46E5",
+      "accent_play": "#FF453A",
+      "accent_success": "#34D399",
+      "accent_warning": "#FBBF24"
+    }
+  },
+  "typography": {
+    "strategy": "The 'Old Money Tech' variant combined with Swiss Brutalism. Distinctive contrast between functional headings and code-like precision.",
+    "headings": {
+      "family": "Outfit, system-ui, sans-serif",
+      "weight": "font-semibold to font-bold",
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "family": "Inter, system-ui, sans-serif",
+      "weight": "font-normal",
+      "tracking": "tracking-normal"
+    },
+    "mono_labels": {
+      "family": "JetBrains Mono, Roboto Mono, monospace",
+      "usage": "Used for Node Types, connection labels (Yes/No on Decision nodes), validation warnings, and small UI metadata.",
+      "weight": "font-medium",
+      "tracking": "tracking-tight",
+      "size": "text-[11px] uppercase"
+    }
+  },
+  "layouts_and_spacing": {
+    "philosophy": "Generous Spacing Philosophy. The canvas must feel infinite, while sidebars feel structured and dense like an airplane cockpit.",
+    "app_shell": "CSS Grid or Flex layout. Fixed Topbar (h-14). Left Sidebar (w-64, bordered right). Right Sidebar (w-80, bordered left). Canvas takes remaining space (flex-1).",
+    "canvas": "Use React Flow's Background with dots (color: border_subtle, gap: 24, size: 2).",
+    "panels": "p-6 internal padding for properties and documentation sidebars.",
+    "corners": "rounded-md (6px) for UI elements, rounded-lg (8px) for workflow nodes. Do NOT use fully rounded pill shapes except for the primary 'Play' button to make it stand out."
+  },
+  "visual_enhancers": {
+    "nodes": {
+      "style": "Clay & Crisp. 1px solid border matching the text-primary color (High contrast).",
+      "shadow": "Harsh drop shadow: shadow-[4px_4px_0px_0px_rgba(26,26,26,1)] in light mode, and rgba(255,255,255,0.1) in dark mode. This gives a tactile, 'stamped' look rather than a generic soft blur.",
+      "hover": "-translate-y-1, shadow-[6px_6px_0px_0px_rgba(26,26,26,1)]"
+    },
+    "play_mode": {
+      "canvas_state": "When Play Mode is active, dim the canvas background slightly and reduce opacity of un-played nodes to 40%.",
+      "active_node": "The active node glows using an intense drop-shadow in the accent_play color.",
+      "edges": "Animated SVG lines (stroke-dasharray animation) representing flow traversal in accent_play color. Traverses branches automatically based on Decision node logic."
+    },
+    "glassmorphism": "Used ONLY for floating elements on the canvas (e.g., zoom controls, mini-map, context menus, validation warnings). Use backdrop-blur-xl bg-white/70 (light) or bg-black/60 (dark) with a 1px solid border."
+  },
+  "component_instructions": {
+    "react_flow": {
+      "nodes": "Create custom node components for all 10 types (Start, End, Process, Decision, Database, API, Document, Delay, Email, Subflow). Do not use default React Flow node styles. Each node must have a distinctive Phosphor Icon. Ensure Diamond shapes for Decision nodes.",
+      "handles": "Directional connection points (Top/Right/Bottom/Left). Make them invisible until the node is hovered or selected. When visible, they should be crisp squares or circles with a solid 1px border. Provide a '+' button on hover for quick add-new-shape.",
+      "edges": "Use smoothstep edges by default. Ensure they support inline text labels for Decision branches (Yes/No)."
+    },
+    "elkjs_layout": {
+      "integration": "When 'Auto Layout' is clicked, parse the React Flow nodes and edges, send to ELK.js algorithm (layered layout, top-to-bottom or left-to-right), and smoothly animate nodes to new coordinates using React Flow instance."
+    },
+    "tiptap_editor": {
+      "style": "Provide a seamless, borderless editing experience inside the right sidebar for detailed node documentation. Focus on typography (Prose classes). Avoid bulky static toolbars—use a floating bubble menu or a minimal sticky header."
+    },
+    "shadcn_ui": {
+      "customization": "Override default Vercel aesthetic. Remove generic soft shadows, replace with sharp 1px borders and hard shadows where appropriate to match the architectural theme. Ensure Settings panel tabs use high contrast active states."
+    },
+    "state_management": {
+      "zustand": "Manage global graph state (nodes, edges, selection, validation warnings) and Play Mode playback state. Sync to IndexedDB for local persistence."
+    }
+  },
+  "motion": {
+    "interactions": "Fast and snappy. transition-transform duration-150 ease-out for all interactive elements.",
+    "play_mode": "Smooth, deliberate transitions between steps (duration-500).",
+    "connections": "When connecting two nodes visually, the drawn edge should appear instantly without lag."
+  },
+  "media": {
+    "empty_states": {
+      "url": "https://images.unsplash.com/photo-1486551937199-baf066858de7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDQ2NDN8MHwxfHNlYXJjaHwzfHxnZW9tZXRyaWMlMjBhYnN0cmFjdCUyMHNoYXBlcyUyMDNkfGVufDB8fHx8MTc4Nzk5MzczNHww&ixlib=rb-4.1.0&q=85",
+      "description": "Architectural repeating pattern. Use as a heavily faded background (opacity-5 to opacity-10) for empty dashboard states or project launch screens."
+    },
+    "icons": {
+      "library": "lucide-react or @phosphor-icons/react",
+      "style": "Use uniform icon weights. Duotone or Regular depending on the library. Do NOT mix icon styles."
+    }
+  },
+  "universal_guidelines": [
+    "DO NOT use generic centered layouts or simplistic uniform styling.",
+    "DO NOT use transparent backgrounds for dropdowns, sticky headers, or overlay content. Content underneath must be fully obscured or heavily blurred.",
+    "DO NOT apply universal transition (transition: all). Target specific properties like opacity, background-color, and transform.",
+    "MUST include 'data-testid' attributes on all interactive elements (buttons, inputs, canvas nodes, play controls) to facilitate robust automated testing.",
+    "MUST use generous spacing (p-6, p-8) in sidebars, dialogs, and the Settings panel.",
+    "MUST ensure accessible contrast ratios. Normal text needs 4.5:1, large text 3:1.",
+    "MUST explicitly set text color on hover states (e.g. hover:bg-black hover:text-white).",
+    "MUST NOT use AI assistant emojis (e.g. 🤖, 🧠, 💡) for icons anywhere in the UI."
+  ]
+}
